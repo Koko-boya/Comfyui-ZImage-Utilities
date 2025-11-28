@@ -455,7 +455,7 @@
     },
     {
       "id": 39,
-      "type": "ZImagePromptEnhancerWithCLIP",
+      "type": "Z_ImagePromptEnhancerWithCLIP",
       "pos": [
         1142.5139939924936,
         -143.50676801499662
@@ -503,7 +503,7 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "ZImagePromptEnhancerWithCLIP"
+        "Node name for S&R": "Z_ImagePromptEnhancerWithCLIP"
       },
       "widgets_values": [
         "Anime illustration of a futuristic convenience store clerk. She has pink twin-tails and is wearing a blue uniform. She is holding up a sign that clearly says \"WELCOME\" at the top and \"欢迎光临\" at the bottom. Neon city lights in the background, highly detailed reflection on the glass window, 8k resolution. ",
@@ -553,7 +553,7 @@
     },
     {
       "id": 42,
-      "type": "ZImageAPIConfig",
+      "type": "Z_ImageAPIConfig",
       "pos": [
         824.2697439830632,
         377.97217476808913
@@ -576,7 +576,7 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "ZImageAPIConfig"
+        "Node name for S&R": "Z_ImageAPIConfig"
       },
       "widgets_values": [
         "",

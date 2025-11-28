@@ -1,8 +1,8 @@
-# ComfyUI-ZImage-Utilities
+# ComfyUI-Z-Image-Utilities
 
 A collection of utility nodes for ComfyUI that enhance Z-Image generation quality through intelligent prompt optimization using free LLM APIs etc
 
-![ComfyUI-ZImage-Utilities](https://i.imgur.com/n2Jh9PD.png)
+![ComfyUI-Z-Image-Utilities](https://i.imgur.com/n2Jh9PD.png)
 
 ## What It Does
 
@@ -31,7 +31,7 @@ gentle shadows. The background shows a blurred living room interior with warm to
 1. Clone into your ComfyUI custom nodes directory:
    ```bash
    cd ComfyUI/custom_nodes/
-   git clone https://github.com/yourusername/ComfyUI-ZImage-Utilities.git
+   git clone https://github.com/yourusername/ComfyUI-Z-Image-Utilities.git
    ```
 
 2. Restart ComfyUI

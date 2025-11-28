@@ -29,7 +29,7 @@ import urllib.error
 
 def setup_logger():
     """Setup logger with file and console output."""
-    logger = logging.getLogger("ZImageUtility")
+    logger = logging.getLogger("Z-ImageUtility")
     logger.setLevel(logging.DEBUG)
     
     # Clear existing handlers
@@ -278,7 +278,7 @@ class OpenRouterClient:
 # NODE: API CONFIG
 # ============================================================================
 
-class ZImageAPIConfig:
+class Z_ImageAPIConfig:
     """
     Configuration node for OpenRouter API.
     """
@@ -331,7 +331,7 @@ class ZImageAPIConfig:
 # NODE: PROMPT ENHANCER
 # ============================================================================
 
-class ZImagePromptEnhancer:
+class Z_ImagePromptEnhancer:
     """
     Z-Image Prompt Enhancer.
     """
@@ -539,7 +539,7 @@ class ZImagePromptEnhancer:
 # NODE: PROMPT ENHANCER WITH CLIP
 # ============================================================================
 
-class ZImagePromptEnhancerWithCLIP:
+class Z_ImagePromptEnhancerWithCLIP:
     """
     Prompt Enhancer with CLIP encoding output.
     """
@@ -566,7 +566,7 @@ class ZImagePromptEnhancerWithCLIP:
     def enhance_and_encode(self, clip, qwen_api, prompt, output_language, temperature, max_tokens, retry_count):
         """Enhance and encode with CLIP."""
         
-        enhancer = ZImagePromptEnhancer()
+        enhancer = Z_ImagePromptEnhancer()
         enhanced_prompt, debug_log = enhancer.enhance(
             qwen_api=qwen_api, 
             prompt=prompt, 
@@ -589,13 +589,13 @@ class ZImagePromptEnhancerWithCLIP:
 # ============================================================================
 
 NODE_CLASS_MAPPINGS = {
-    "ZImageAPIConfig": ZImageAPIConfig,
-    "ZImagePromptEnhancer": ZImagePromptEnhancer,
-    "ZImagePromptEnhancerWithCLIP": ZImagePromptEnhancerWithCLIP,
+    "Z_ImageAPIConfig": Z_ImageAPIConfig,
+    "Z_ImagePromptEnhancer": Z_ImagePromptEnhancer,
+    "Z_ImagePromptEnhancerWithCLIP": Z_ImagePromptEnhancerWithCLIP,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ZImageAPIConfig": "Z-Image OpenRouter API Router",
-    "ZImagePromptEnhancer": "Z-Image Prompt Enhancer",
-    "ZImagePromptEnhancerWithCLIP": "Z-Image Prompt Enhancer + CLIP",
+    "Z_ImageAPIConfig": "Z-Image OpenRouter API Router",
+    "Z_ImagePromptEnhancer": "Z-Image Prompt Enhancer",
+    "Z_ImagePromptEnhancerWithCLIP": "Z-Image Prompt Enhancer + CLIP",
 }
