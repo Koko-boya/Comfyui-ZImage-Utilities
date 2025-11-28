@@ -1,63 +1,70 @@
 # ComfyUI-ZImage-Utilities
 
-A powerful prompt enhancement utility for ComfyUI that uses the FREE Qwen API via OpenRouter (or any other OpenRouter model) to transform simple prompts into detailed, aesthetically pleasing visual descriptions.
+**A comprehensive utility suite designed to elevate Z-Image generation quality through superior input processing and intelligent prompt engineering.**
 
-## Features
+This project is not just a prompt enhancer—it is a collection of specialized nodes built to ensure your Z-Image workflows start with the highest quality data possible. By leveraging the "Logic Cage" methodology and the Qwen model via OpenRouter, these utilities transform vague ideas into precise, aesthetically optimized instructions that Z-Image models can understand perfectly.
 
-- **Free & Powerful**: Uses the Qwen model via OpenRouter's free tier by default.
-- **Prompt Enhancement**: Turns basic ideas into "logic cage" optimized prompts for better image generation.
-- **Bilingual Support**: Automatically detects and handles Chinese and English prompts.
-- **Strict Error Handling**: Robust error management with clear feedback.
-- **Smart Rate Limiting**: Automatically respects `Retry-After` headers to avoid API bans.
-- **Detailed Logging**: Comprehensive debug logs for troubleshooting.
-- **CLIP Integration**: Optional node to directly output CLIP conditioning.
+## The Z-Image Philosophy
 
-## Nodes
+Quality in, quality out. Z-Image models thrive on specificity, visual clarity, and logical consistency. This utility suite provides the infrastructure to:
+1.  **Standardize Inputs**: Ensure every prompt follows a strict, high-quality format.
+2.  **Maximize Intelligence**: Use state-of-the-art LLMs to reason about and expand your concepts.
+3.  **Ensure Reliability**: Robust error handling and rate limiting keep your workflows running smoothly.
 
-### 1. Z-Image OpenRouter API Router
-Configuration node for the API connection.
-- **api_key**: Your OpenRouter API key.
-- **model**: The model ID to use (default: `qwen/qwen3-235b-a22b:free`).
+## The Utility Nodes
 
-### 2. Z-Image Prompt Enhancer
-The core node that takes a prompt and returns the enhanced version.
-- **Inputs**:
-    - `qwen_api`: Connection from the API Router node.
-    - `prompt`: Your input text.
-    - `output_language`: Force "english", "chinese", or "auto" (default).
-    - `temperature`: Creativity control (default: 0.7).
-    - `max_tokens`: Maximum length of the generated prompt.
-    - `retry_count`: How many times to retry on failure.
-- **Outputs**:
-    - `enhanced_prompt`: The final text.
-    - `debug_log`: Technical details of the generation process.
+### 1. Z-Image Prompt Enhancer ("The Logic Cage")
+The core engine of the suite. This node doesn't just "rewrite" prompts; it forces them through a rigorous logical structure (the "Logic Cage") to ensure:
+-   **Fidelity**: The core intent is locked and preserved.
+-   **Detail**: Aesthetic and realistic details are injected based on visual reasoning.
+-   **Clarity**: Ambiguities are removed, and text elements are handled with precision.
+
+**Key Features:**
+-   **Bilingual Support**: Native handling of Chinese and English.
+-   **Smart Cleaning**: Automatically strips "thinking" tags and markdown artifacts.
+-   **Detailed Logging**: Full visibility into the enhancement process.
+
+### 2. Z-Image OpenRouter API Router
+The connectivity backbone. This node manages the connection to the intelligence source (OpenRouter), allowing you to:
+-   **Switch Models**: Use any model on OpenRouter (default: `qwen/qwen3-235b-a22b:free`).
+-   **Manage Costs**: Use free models or premium ones as needed.
+-   **Centralize Config**: Configure your API key once and use it across your workflow.
 
 ### 3. Z-Image Prompt Enhancer + CLIP
-Same as above, but also encodes the text using a CLIP model.
-- **Inputs**: Same as above, plus a `clip` input.
-- **Outputs**:
-    - `conditioning`: Ready-to-use conditioning for KSampler.
-    - `enhanced_prompt`: The text.
-    - `debug_log`: Technical details.
+The integration layer. This node combines the enhancement engine with CLIP encoding, streamlining your workflow by:
+-   **Direct Conditioning**: Outputting ready-to-use conditioning for KSamplers.
+-   **Reducing Clutter**: Eliminating the need for separate CLIP Text Encode nodes.
+-   **Ensuring Compatibility**: seamlessly bridging text enhancement with image generation.
+
+## Features at a Glance
+
+| Feature | Description |
+| :--- | :--- |
+| **Reliability** | Strict error handling, smart rate limiting (respects `Retry-After`), and auto-retries. |
+| **Quality** | "Logic Cage" prompting ensures high-fidelity, aesthetically pleasing outputs. |
+| **Flexibility** | User-definable models, temperature control, and manual retry settings. |
+| **Transparency** | Detailed debug logs show exactly what the model is thinking and doing. |
+| **Cost-Effective** | Default configuration uses 100% FREE models via OpenRouter. |
 
 ## Installation
 
-1. Clone this repository into your `ComfyUI/custom_nodes/` directory:
-   ```bash
-   cd ComfyUI/custom_nodes/
-   git clone https://github.com/yourusername/ComfyUI-ZImage-Utilities.git
-   ```
-2. Restart ComfyUI.
+1.  Clone this repository into your `ComfyUI/custom_nodes/` directory:
+    ```bash
+    cd ComfyUI/custom_nodes/
+    git clone https://github.com/yourusername/ComfyUI-ZImage-Utilities.git
+    ```
+2.  Restart ComfyUI.
 
 ## Configuration
 
-1. Get a free API key from [OpenRouter](https://openrouter.ai/keys).
-2. In ComfyUI, add the **Z-Image OpenRouter API Router** node.
-3. Paste your API key into the `api_key` field.
+1.  Get a free API key from [OpenRouter](https://openrouter.ai/keys).
+2.  Add the **Z-Image OpenRouter API Router** node to your workflow.
+3.  Enter your API key.
 
-## Usage Example
+## Usage Workflows
 
-**Basic Workflow:**
+### Standard Enhancement
+*Best for general usage where you want to see the text output.*
 ```
 [Z-Image OpenRouter API Router] 
        |
@@ -68,13 +75,18 @@ Same as above, but also encodes the text using a CLIP model.
 [CLIP Text Encode] --> [KSampler]
 ```
 
-**Advanced Workflow (with CLIP):**
+### Integrated Pipeline
+*Best for streamlined, high-efficiency workflows.*
 ```
 [Checkpoint Loader] --> [Z-Image Prompt Enhancer + CLIP] --> [KSampler]
                                    ^
                                    |
                      [Z-Image OpenRouter API Router]
 ```
+
+## Credits
+
+-   **Prompt Template**: Adapted from the [Z-Image Turbo Space](https://huggingface.co/spaces/Tongyi-MAI/Z-Image-Turbo/blob/main/pe.py).
 
 ## License
 
