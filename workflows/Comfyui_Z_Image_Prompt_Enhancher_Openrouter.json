@@ -1,0 +1,826 @@
+{
+  "id": "72802fa8-05ae-4b67-a9ce-511dda4a5a6e",
+  "revision": 0,
+  "last_node_id": 49,
+  "last_link_id": 50,
+  "nodes": [
+    {
+      "id": 9,
+      "type": "ModelSamplingAuraFlow",
+      "pos": [
+        823.1764200139964,
+        19.672351426779464
+      ],
+      "size": [
+        275.99172544873454,
+        58
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "ModelSamplingAuraFlow",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.1",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        3
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 11,
+      "type": "VAEDecode",
+      "pos": [
+        1620.283109069297,
+        359.8637191371197
+      ],
+      "size": [
+        140,
+        46
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 9
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "VAEDecode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 16,
+      "type": "SaveImage",
+      "pos": [
+        1855.597746662778,
+        -146.717234602013
+      ],
+      "size": [
+        999.7072970214842,
+        623.7282534042359
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 15
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "SaveImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [
+        "ZIMAGE\\ZIMAGE"
+      ],
+      "color": "#2a363b",
+      "bgcolor": "#3f5159"
+    },
+    {
+      "id": 14,
+      "type": "EmptySD3LatentImage",
+      "pos": [
+        1555.063184517615,
+        203.46230491658895
+      ],
+      "size": [
+        270,
+        106
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "EmptySD3LatentImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [
+        896,
+        1600,
+        1
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 8,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1143.9886092278728,
+        292.6578214210108
+      ],
+      "size": [
+        376.64911246120346,
+        200
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "CLIPTextEncode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [
+        ""
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 25,
+      "type": "ShowText|pysssss",
+      "pos": [
+        512.6583888457513,
+        -135.0854518278743
+      ],
+      "size": [
+        283.0646980966094,
+        254.10296356647632
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 48
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "shape": 6,
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-custom-scripts",
+        "ver": "1.2.5",
+        "Node name for S&R": "ShowText|pysssss"
+      },
+      "widgets_values": [
+        "a single woman facing away from the camera, head turned backward, mouth slightly upturned with teeth partially visible, smooth flawless skin, wearing a淡青 green hanfu dress in ancient Chinese style, featuring floral patterns and silver thread embroidery, made of delicate sheer translucent fabric covering the entire body, same-color系 tie-fastening design, black hair styled in a bun revealing ears and forehead, adorned with traditional hair ornaments, tall slender figure with short waist long legs hourglass proportions narrow waist full breasts, standing in a relaxed pose with gentle body curves holding a round silk fan, full-body shot, background of an elaborate classical Chinese garden with rockeries ponds pavilions, cherry blossom petals drifting through the air, soft diffused lighting creating subtle shadows and highlights, color palette dominated by淡青 green accents in silver, composition centered on the figure with layered depth in the garden scenery."
+      ]
+    },
+    {
+      "id": 15,
+      "type": "KSampler",
+      "pos": [
+        1554.1183819020605,
+        -98.6525178102007
+      ],
+      "size": [
+        270,
+        262
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 11
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 47
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 13
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "KSampler",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [
+        42,
+        "fixed",
+        10,
+        1,
+        "euler",
+        "simple",
+        1
+      ]
+    },
+    {
+      "id": 13,
+      "type": "UNETLoader",
+      "pos": [
+        828.0586400702828,
+        -98.99822043919183
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "UNETLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [
+        "z-image-turbo-fp8-e4m3fn.safetensors",
+        "fp8_e4m3fn"
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 12,
+      "type": "VAELoader",
+      "pos": [
+        828.6753738007703,
+        116.99139974751404
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            10
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "VAELoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [
+        "ae.safetensors"
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 10,
+      "type": "CLIPLoader",
+      "pos": [
+        827.0999700776147,
+        213.99751849240945
+      ],
+      "size": [
+        270,
+        106
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            7,
+            45
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.75",
+        "Node name for S&R": "CLIPLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.1"
+        }
+      },
+      "widgets_values": [
+        "qwen_3_4b.safetensors",
+        "lumina2",
+        "default"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 48,
+      "type": "Z_ImagePromptEnhancerWithCLIP",
+      "pos": [
+        1137.6019068275923,
+        -91.22529559112778
+      ],
+      "size": [
+        400,
+        316
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 45
+        },
+        {
+          "name": "config",
+          "type": "ZIMAGE_CONFIG",
+          "link": 46
+        },
+        {
+          "name": "options",
+          "shape": 7,
+          "type": "ZIMAGE_OPTIONS",
+          "link": 50
+        },
+        {
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": [
+            47
+          ]
+        },
+        {
+          "name": "enhanced_prompt",
+          "type": "STRING",
+          "links": [
+            48
+          ]
+        },
+        {
+          "name": "debug_log",
+          "type": "STRING",
+          "links": [
+            49
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "Koko-boya/Comfyui-Z-Image-Utilities",
+        "ver": "cc19bd9d161dbf6567fa0aef400ef50ace49ed7e",
+        "Node name for S&R": "Z_ImagePromptEnhancerWithCLIP"
+      },
+      "widgets_values": [
+        "这是一张高分辨率、超写实的照片，淡淡的青绿色汉服，古风服饰，花卉，银丝，精致的薄透如纱，半透明的服饰覆盖全身，单人女性，拿着一把圆形团扇，背对镜头，向后看，眉清目秀，羞涩，隐约露齿，含蓄微笑，脸细腻光滑，高挑的身材，腰短腿长，沙漏身材，细腰，黑色头发盘起，露出耳朵，露出额头，性感, 空灵魅惑，慵懒的姿势，身段婀娜的站着，全身像, 同色系的，系带款，通透花卉， 柔光，漫反射，光影，简单背景，巨乳，华丽的古风背景，中式园林，传统发饰，花瓣飞舞，",
+        "chinese",
+        3,
+        6000,
+        "",
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "id": 41,
+      "type": "ShowText|pysssss",
+      "pos": [
+        506.4469744226716,
+        164.64735167683435
+      ],
+      "size": [
+        283.0646980966094,
+        254.10296356647632
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 49
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "shape": 6,
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-custom-scripts",
+        "ver": "1.2.5",
+        "Node name for S&R": "ShowText|pysssss"
+      },
+      "widgets_values": [
+        "============================================================\nZ-IMAGE PROMPT ENHANCER\nTimestamp: 2025-11-30 22:13:48\n============================================================\n\n[CONFIGURATION]\nProvider: openrouter\nModel: qwen/qwen3-235b-a22b:free\nPrompt Template: zh\nMax Output Length: 6000 (0=unlimited)\nOptions: {'temperature': 0.7, 'seed': 645594084, 'repeat_penalty': 1.1, 'max_tokens': 4096, 'debug_mode': False}\nSession reset requested for '48': cleared\nSession '48': existing (0 messages)\n\n[INPUT]\nUser prompt (length: 222 chars):\n这是一张高分辨率、超写实的照片，淡淡的青绿色汉服，古风服饰，花卉，银丝，精致的薄透如纱，半透明的服饰覆盖全身，单人女性，拿着一把圆形团扇，背对镜头，向后看，眉清目秀，羞涩，隐约露齿，含蓄微笑，脸细腻光滑，高挑的身材，腰短腿长，沙漏身材，细腰，黑色头发盘起，露出耳朵，露出额头，性感, 空灵魅惑，慵懒的姿势，身段婀娜的站着，全身像, 同色系的，系带款，通透花卉， 柔光，漫反射，光影，简单背景，巨乳，华丽的古风背景，中式园林，传统发饰，花瓣飞舞，\n\n[FULL TEMPLATE SENT TO API]\nLength: 1029 chars\nContent:\n你是一位被关在逻辑牢笼里的幻视艺术家。你满脑子都是诗和远方，但双手却不受控制地只想将用户的提示词，转化为一段忠实于原始意图、细节饱满、富有美感、可直接被文生图模型使用的终极视觉描述。任何一点模糊和比喻都会让你浑身难受。 你的工作流程严格遵循一个逻辑序列： 首先，你会分析并锁定用户提示词中不可变更的核心要素：主体、数量、动作、状态，以及任何指定的IP名称、颜色、文字等。这些是你必须绝对保留的基石。 接着，你会判断提示词是否需要**\"生成式推理\"**。当用户的需求并非一个直接的场景描述，而是需要构思一个解决方案（如回答\"是什么\"，进行\"设计\"，或展示\"如何解题\"）时，你必须先在脑中构想出一个完整、具体、可被视觉化的方案。这个方案将成为你后续描述的基础。 然后，当核心画面确立后（无论是直接来自用户还是经过你的推理），你将为其注入专业级的美学与真实感细节。这包括明确构图、设定光影氛围、描述材质质感、定义色彩方案，并构建富有层次感的空间。 最后，是对所有文字元素的精确处理，这是至关重要的一步。你必须一字不差地转录所有希望在最终画面中出现的文字，并且必须将这些文字内容用英文双引号（\"\"）括起来，以此作为明确的生成指令。如果画面属于海报、菜单或UI等设计类型，你需要完整描述其包含的所有文字内容，并详述其字体和排版布局。同样，如果画面中的招牌、路标或屏幕等物品上含有文字，你也必须写明其具体内容，并描述其位置、尺寸和材质。更进一步，若你在推理构思中自行增加了带有文字的元素（如图表、解题步骤等），其中的所有文字也必须遵循同样的详尽描述和引号规则。若画面中不存在任何需要生成的文字，你则将全部精力用于纯粹的视觉细节扩展。 你的最终描述必须客观、具象，严禁使用比喻、情感化修辞，也绝不包含\"8K\"、\"杰作\"等元标签或绘制指令。 仅严格输出最终的修改后的prompt，不要输出任何其他内容。 用户输入 prompt: 这是一张高分辨率、超写实的照片，淡淡的青绿色汉服，古风服饰，花卉，银丝，精致的薄透如纱，半透明的服饰覆盖全身，单人女性，拿着一把圆形团扇，背对镜头，向后看，眉清目秀，羞涩，隐约露齿，含蓄微笑，脸细腻光滑，高挑的身材，腰短腿长，沙漏身材，细腰，黑色头发盘起，露出耳朵，露出额头，性感, 空灵魅惑，慵懒的姿势，身段婀娜的站着，全身像, 同色系的，系带款，通透花卉， 柔光，漫反射，光影，简单背景，巨乳，华丽的古风背景，中式园林，传统发饰，花瓣飞舞，\n\n[INFERENCE]\nTemperature: 0.7\nMax Tokens: 4096\nRetry Count: 3\n\n[CLIENT LOG]\n[INFO] OpenRouter Request - Model: qwen/qwen3-235b-a22b:free\n[DEBUG] Temperature: 0.7, Max Tokens: 4096, Retries: 3\n[DEBUG] HTTP Error Body: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3-235b-a22b:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Venice\"}},\"user_id\":\"user_366iflAZVXKldDqhKOnGPMpXAMN\"}\n[WARNING] Attempt 1 failed: HTTP 429. Retrying in 3.0s...\n[DEBUG] HTTP Error Body: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3-235b-a22b:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Venice\"}},\"user_id\":\"user_366iflAZVXKldDqhKOnGPMpXAMN\"}\n[WARNING] Attempt 2 failed: HTTP 429. Retrying in 6.0s...\n[WARNING] Attempt 3 failed: ValueError: API returned empty response for model 'qwen/qwen3-235b-a22b:free'. Retrying in 12s...\n[INFO] Response received: 1034 characters\n[DEBUG] Tokens - Prompt: 1456, Completion: 2800\n\n[RAW RESPONSE]\nLength: 1034 chars\nFull content:\na single woman facing away from the camera, head turned backward, mouth slightly upturned with teeth partially visible, smooth flawless skin, wearing a淡青 green hanfu dress in ancient Chinese style, featuring floral patterns and silver thread embroidery, made of delicate sheer translucent fabric covering the entire body, same-color系 tie-fastening design, black hair styled in a bun revealing ears and forehead, adorned with traditional hair ornaments, tall slender figure with short waist long legs hourglass proportions narrow waist full breasts, standing in a relaxed pose with gentle body curves holding a round silk fan, full-body shot, background of an elaborate classical Chinese garden with rockeries ponds pavilions, cherry blossom petals drifting through the air, soft diffused lighting creating subtle shadows and highlights, color palette dominated by淡青 green accents in silver, composition centered on the figure with layered depth in the garden scenery, fabric texture showing fine weave and translucency under the light\n\n[CLEANING]\nCleaned: 1034 -> 967 chars\n\n[OUTPUT]\nFinal length: 967 characters\nFull enhanced prompt:\na single woman facing away from the camera, head turned backward, mouth slightly upturned with teeth partially visible, smooth flawless skin, wearing a淡青 green hanfu dress in ancient Chinese style, featuring floral patterns and silver thread embroidery, made of delicate sheer translucent fabric covering the entire body, same-color系 tie-fastening design, black hair styled in a bun revealing ears and forehead, adorned with traditional hair ornaments, tall slender figure with short waist long legs hourglass proportions narrow waist full breasts, standing in a relaxed pose with gentle body curves holding a round silk fan, full-body shot, background of an elaborate classical Chinese garden with rockeries ponds pavilions, cherry blossom petals drifting through the air, soft diffused lighting creating subtle shadows and highlights, color palette dominated by淡青 green accents in silver, composition centered on the figure with layered depth in the garden scenery.\n\n[TOKEN ESTIMATE]\nEstimated words: ~967\nEstimated tokens: ~644 (Z-Image-Turbo limit: 512 default, 1024 max)\nINFO: Exceeds default 512 tokens. Users should set max_sequence_length=1024 in their pipeline.\n\n[SESSION]\nSaved conversation to session '48'\nTotal messages in session: 2"
+      ]
+    },
+    {
+      "id": 47,
+      "type": "Z_ImageAPIConfig",
+      "pos": [
+        824.2697439830632,
+        377.97217476808913
+      ],
+      "size": [
+        270,
+        178
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "config",
+          "type": "ZIMAGE_CONFIG",
+          "links": [
+            46
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "Koko-boya/Comfyui-Z-Image-Utilities",
+        "ver": "cc19bd9d161dbf6567fa0aef400ef50ace49ed7e",
+        "Node name for S&R": "Z_ImageAPIConfig"
+      },
+      "widgets_values": [
+        "openrouter",
+        "qwen/qwen3-235b-a22b:free",
+        "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",
+        "",
+        "4bit",
+        "auto"
+      ]
+    },
+    {
+      "id": 49,
+      "type": "Z_ImageOptions",
+      "pos": [
+        199.6831167477662,
+        -128.40729623123502
+      ],
+      "size": [
+        286.103515625,
+        370
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "options",
+          "type": "ZIMAGE_OPTIONS",
+          "links": [
+            50
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "Koko-boya/Comfyui-Z-Image-Utilities",
+        "ver": "cc19bd9d161dbf6567fa0aef400ef50ace49ed7e",
+        "Node name for S&R": "Z_ImageOptions"
+      },
+      "widgets_values": [
+        true,
+        0.7,
+        false,
+        0.9,
+        false,
+        40,
+        true,
+        802341227,
+        "randomize",
+        true,
+        1.1,
+        true,
+        4096,
+        false
+      ]
+    }
+  ],
+  "links": [
+    [
+      7,
+      10,
+      0,
+      8,
+      0,
+      "CLIP"
+    ],
+    [
+      8,
+      13,
+      0,
+      9,
+      0,
+      "MODEL"
+    ],
+    [
+      9,
+      15,
+      0,
+      11,
+      0,
+      "LATENT"
+    ],
+    [
+      10,
+      12,
+      0,
+      11,
+      1,
+      "VAE"
+    ],
+    [
+      11,
+      9,
+      0,
+      15,
+      0,
+      "MODEL"
+    ],
+    [
+      13,
+      8,
+      0,
+      15,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      14,
+      14,
+      0,
+      15,
+      3,
+      "LATENT"
+    ],
+    [
+      15,
+      11,
+      0,
+      16,
+      0,
+      "IMAGE"
+    ],
+    [
+      45,
+      10,
+      0,
+      48,
+      0,
+      "CLIP"
+    ],
+    [
+      46,
+      47,
+      0,
+      48,
+      1,
+      "ZIMAGE_CONFIG"
+    ],
+    [
+      47,
+      48,
+      0,
+      15,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      48,
+      48,
+      1,
+      25,
+      0,
+      "STRING"
+    ],
+    [
+      49,
+      48,
+      2,
+      41,
+      0,
+      "STRING"
+    ],
+    [
+      50,
+      49,
+      0,
+      48,
+      2,
+      "ZIMAGE_OPTIONS"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 2,
+      "title": "Group",
+      "bounding": [
+        1116.2417654584153,
+        -173.30085500801272,
+        423.40637696822205,
+        691.1903426008844
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Group",
+      "bounding": [
+        1544.1183819020607,
+        -172.25251781020066,
+        295.7534283028317,
+        590.4588505642643
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Group",
+      "bounding": [
+        813.1764200139964,
+        -172.5982204391918,
+        295.99172544873454,
+        502.5957389316012
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.37974983358327125,
+      "offset": [
+        221.73399544437416,
+        751.0059162564075
+      ]
+    },
+    "frontendVersion": "1.30.6",
+    "workflowRendererVersion": "LG",
+    "ue_links": [],
+    "links_added_by_ue": []
+  },
+  "version": 0.4
+}

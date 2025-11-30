@@ -1079,21 +1079,101 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
     
     # Remove thinking tags (Qwen3 thinking mode)
     # Handle both complete <think>...</think> blocks and orphaned </think> tags
-    # Some models output thinking without opening tag, only closing </think>
     if "<think>" in text and "</think>" in text:
         text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
         if debug_log:
             debug_log.append("Removed <think>...</think> block")
     elif "</think>" in text:
-        # Handle case where model outputs thinking without opening tag
-        # Everything before </think> is thinking, everything after is the answer
         parts = text.split("</think>", 1)
         if len(parts) == 2 and parts[1].strip():
             text = parts[1].strip()
             if debug_log:
                 debug_log.append(f"Removed thinking content before </think> tag ({len(parts[0])} chars)")
-        elif debug_log:
-            debug_log.append("Found </think> but no content after it, keeping original")
+    
+    # Handle "Thinking" models that output reasoning without tags
+    thinking_indicators_zh = [
+        "我是一个被关在逻辑牢笼里的幻视艺术家",
+        "我的工作流程是",
+        "首先，分析",
+        "首先，我需要",
+        "让我分析",
+        "根据工作流程",
+        "现在，用户输入的prompt是",
+        "我需要把这个转化为",
+        "检查是否有需要",
+        "关键点：",
+        "现在，构建描述",
+        "开始草拟",
+    ]
+    thinking_indicators_en = [
+        "I am a visionary artist",
+        "My workflow is",
+        "First, I need to analyze",
+        "Let me analyze",
+        "Following the workflow",
+        "The user's input prompt is",
+        "I need to transform this",
+        "Checking if",
+        "Key points:",
+        "Now, constructing",
+        "Let me draft",
+    ]
+    
+    has_thinking = any(indicator in text for indicator in thinking_indicators_zh + thinking_indicators_en)
+    
+    if has_thinking:
+        if debug_log:
+            debug_log.append("Detected untagged thinking/reasoning content")
+        
+        # Strategy 1: Look for final prompt markers
+        final_prompt_markers = [
+            "最终prompt：", "最终的prompt：", "修改后的prompt：", 
+            "增强后的prompt：", "优化后的prompt：",
+            "最终描述：", "最终视觉描述：",
+            "Final prompt:", "Enhanced prompt:", "Modified prompt:",
+            "The final prompt:", "Here is the enhanced prompt:",
+        ]
+        
+        best_start = -1
+        for marker in final_prompt_markers:
+            idx = text.rfind(marker)
+            if idx != -1:
+                potential_start = idx + len(marker)
+                if potential_start > best_start:
+                    best_start = potential_start
+        
+        if best_start > 0 and best_start < len(text) - 50:
+            text = text[best_start:].strip()
+            if debug_log:
+                debug_log.append(f"Extracted final prompt after marker at position {best_start}")
+        else:
+            # Strategy 2: Extract English prompt at end (common pattern)
+            # Look for "例如：" or "Example:" followed by English text
+            example_match = re.search(r'(?:例如：|Example:\s*)([A-Z][a-zA-Z].*?)$', text, re.DOTALL)
+            if example_match:
+                text = example_match.group(1).strip()
+                if debug_log:
+                    debug_log.append("Extracted English prompt after example marker")
+            else:
+                # Strategy 3: Find standalone English prompt in latter half
+                # Pattern for typical image prompts
+                english_prompt_pattern = r'\n([A-Z][a-z][^。\n]*(?:photo|image|portrait|scene|woman|man|person|wearing|standing|sitting)[^。]*\.?)$'
+                match = re.search(english_prompt_pattern, text)
+                if match:
+                    text = match.group(1).strip()
+                    if debug_log:
+                        debug_log.append("Extracted trailing English prompt")
+                else:
+                    # Strategy 4: Last resort - find content after "核心画面" or similar
+                    fallback_markers = ["核心画面：", "首先，核心画面：", "添加细节："]
+                    for marker in fallback_markers:
+                        idx = text.rfind(marker)
+                        if idx != -1 and idx > len(text) * 0.5:
+                            # Take content from this point but clean it up
+                            text = text[idx + len(marker):].strip()
+                            if debug_log:
+                                debug_log.append(f"Extracted content after '{marker}'")
+                            break
     
     # Remove markdown code blocks
     if text.startswith('```'):
@@ -1120,29 +1200,24 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
        (text.startswith("'") and text.endswith("'")):
         text = text[1:-1].strip()
     
-    # NEW: Remove negative instruction phrases (useless for image generation)
-    # Pattern: no "X" or "Y" tags, no "X" tags, no "X" descriptors, etc.
+    # Remove negative instruction phrases
     negative_pattern = r',?\s*no\s+"[^"]{1,50}"(?:\s+or\s+"[^"]{1,50}")?\s+(?:tags?|descriptors?|effects?|elements?|overlays?|filters?|presence)'
     neg_matches = list(re.finditer(negative_pattern, text, re.IGNORECASE))
-    if len(neg_matches) > 3:  # Only strip if there are many (likely a pattern gone wrong)
+    if len(neg_matches) > 3:
         if debug_log:
             debug_log.append(f"Removing {len(neg_matches)} negative instruction phrases")
         text = re.sub(negative_pattern, '', text, flags=re.IGNORECASE)
-        # Clean up any resulting double commas or trailing commas
         text = re.sub(r',\s*,', ',', text)
         text = re.sub(r',\s*$', '.', text)
         text = re.sub(r',\s*\.', '.', text)
     
-    # NEW: Detect phrase-level repetition loops (semantic repetition)
-    # Split into comma-separated segments and look for repeated sequences
+    # Detect phrase-level repetition loops
     segments = [s.strip() for s in text.split(',') if s.strip()]
     if len(segments) > 10:
-        # Look for repeating phrase patterns (sequences of 2-6 segments that repeat)
         for pattern_len in range(2, 7):
-            if len(segments) >= pattern_len * 3:  # Need at least 3 repetitions
+            if len(segments) >= pattern_len * 3:
                 for start in range(len(segments) - pattern_len * 2):
                     pattern = segments[start:start + pattern_len]
-                    # Check if this pattern repeats
                     repeat_count = 1
                     pos = start + pattern_len
                     while pos + pattern_len <= len(segments):
@@ -1152,10 +1227,9 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
                         else:
                             break
                     
-                    if repeat_count >= 3:  # Found 3+ repetitions
+                    if repeat_count >= 3:
                         if debug_log:
-                            debug_log.append(f"Detected phrase repetition loop: {pattern_len} phrases repeated {repeat_count} times at segment {start}")
-                        # Keep only up to the first repetition
+                            debug_log.append(f"Detected phrase repetition loop: {pattern_len} phrases repeated {repeat_count} times")
                         segments = segments[:start + pattern_len]
                         text = ', '.join(segments)
                         if text and text[-1] not in '.!?':
@@ -1165,8 +1239,7 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
                     continue
                 break
     
-    # IMPROVED: Remove trailing quoted keyword lists (more aggressive)
-    # Pattern 1: "keyword" descriptor, "keyword" descriptor format
+    # Remove trailing quoted keyword lists
     keyword_list_pattern = r',\s*"[^"]{1,80}"\s+\w+(?:,\s*"[^"]{1,80}"\s+\w+){2,}\s*$'
     match = re.search(keyword_list_pattern, text)
     if match:
@@ -1175,17 +1248,15 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
         text = text[:match.start()].strip()
         if text and text[-1] not in '.!?':
             text += '.'
-    
-    # Pattern 2: Simple consecutive quoted strings
     elif re.search(r'(\s*"[^"]{1,50}"\s*){3,}$', text):
         match = re.search(r'(\s*"[^"]{1,50}"\s*){3,}$', text)
         if debug_log:
-            debug_log.append(f"Removed trailing quoted keywords at position {match.start()}")
+            debug_log.append(f"Removed trailing quoted keywords")
         text = text[:match.start()].strip()
         if text and text[-1] not in '.!?':
             text += '.'
     
-    # Fix exact character repetition loops (original pattern)
+    # Fix exact character repetition loops
     repeat_pattern = r'(.{10,60}?)\1{2,}'
     match = re.search(repeat_pattern, text)
     if match:
@@ -1196,26 +1267,23 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
         if last_period > match.start() - 50:
             text = text[:last_period + 1]
     
-    # Apply max length if specified (and > 0)
+    # Apply max length if specified
     if max_length > 0 and len(text) > max_length:
         if debug_log:
             debug_log.append(f"Output too long ({len(text)} chars), truncating to {max_length}")
         text = text[:max_length]
-        # IMPROVED: Try to end at a complete phrase (period, comma, or natural break)
-        # First try period
         last_period = text.rfind('.')
-        if last_period > max_length * 0.7:  # Within last 30%
+        if last_period > max_length * 0.7:
             text = text[:last_period + 1]
         else:
-            # Try comma as fallback
             last_comma = text.rfind(',')
-            if last_comma > max_length * 0.85:  # Within last 15%
+            if last_comma > max_length * 0.85:
                 text = text[:last_comma] + '.'
     
     # Clean up extra whitespace
     text = re.sub(r'\s{2,}', ' ', text).strip()
     
-    # Final cleanup: remove any trailing incomplete phrases after comma
+    # Final cleanup: remove trailing incomplete phrases
     if text and text[-1] not in '.!?"\'':
         last_period = text.rfind('.')
         last_comma = text.rfind(',')
