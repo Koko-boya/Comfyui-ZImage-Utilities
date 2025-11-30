@@ -2,7 +2,7 @@
 
 A collection of utility nodes for ComfyUI designed specifically for the [Z-Image](https://github.com/Tongyi-MAI/Z-Image) model.
 
-![ComfyUI-Z-Image-Utilities](https://i.imgur.com/n2Jh9PD.png)
+![ComfyUI-Z-Image-Utilities](https://i.imgur.com/4pdoapv.png)
 
 ## Features
 
