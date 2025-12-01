@@ -1685,24 +1685,27 @@ class Z_ImagePromptEnhancer:
         
         # Build prompt with template
         template = PROMPT_TEMPLATE_ZH if lang == "zh" else PROMPT_TEMPLATE_EN
-        full_prompt = template.format(prompt=prompt)
+        system_prompt = template.format(prompt=prompt)
         
         debug_lines.append(f"\n[INPUT]")
         debug_lines.append(f"User prompt (length: {len(prompt)} chars):")
         debug_lines.append(f"{prompt}")
         
-        debug_lines.append(f"\n[FULL TEMPLATE SENT TO API]")
-        debug_lines.append(f"Length: {len(full_prompt)} chars")
-        debug_lines.append(f"Content:\n{full_prompt}")
+        debug_lines.append(f"\n[SYSTEM INSTRUCTION SENT TO API]")
+        debug_lines.append(f"Length: {len(system_prompt)} chars")
+        debug_lines.append(f"Content:\n{system_prompt}")
         
-        # Initialize messages with session history if exists (for multi-turn)
+        # Initialize messages with system instruction first
         messages = []
+        messages.append({"role": "system", "content": system_prompt})
+        
+        # Add session history if exists (for multi-turn)
         if session.messages and not is_new:
             messages.extend(session.get_messages())
             debug_lines.append(f"Added {len(session.messages)} messages from session history")
         
-        # Add current user message
-        messages.append({"role": "user", "content": full_prompt})
+        # Add minimal user trigger message
+        messages.append({"role": "user", "content": " "})
         
         # Handle vision models if image provided
         if image is not None and HAS_PIL:
@@ -1712,7 +1715,7 @@ class Z_ImagePromptEnhancer:
                 images_b64 = batch_tensors_to_base64(image)
                 if images_b64:
                     debug_lines.append(f"Encoded {len(images_b64)} image(s) to base64")
-                    content_parts = [{"type": "text", "text": full_prompt}]
+                    content_parts = [{"type": "text", "text": " "}]
                     for idx, img_b64 in enumerate(images_b64):
                         content_parts.append({
                             "type": "image_url",
@@ -1796,7 +1799,8 @@ class Z_ImagePromptEnhancer:
         logger.info(f"Enhancement successful. Length: {len(enhanced)}")
         
         # Save conversation to session for multi-turn continuity
-        session.add_message("user", full_prompt)
+        # Store original prompt (not system instruction) for cleaner history
+        session.add_message("user", prompt)
         session.add_message("assistant", enhanced)
         debug_lines.append(f"\n[SESSION]")
         debug_lines.append(f"Saved conversation to session '{effective_session_id}'")
