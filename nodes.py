@@ -1612,7 +1612,7 @@ class Z_ImagePromptEnhancer:
                     "tooltip": TOOLTIPS["utf8_sanitize"]
                 }),
                 "custom_system_prompt": ("STRING", {
-                    "multiline": False,
+                    "multiline": True,
                     "default": "",
                     "placeholder": "Enter a custom system prompt and select 'custom' in the prompt template."
                 }),
@@ -1930,7 +1930,7 @@ class Z_ImagePromptEnhancerWithCLIP:
                     "tooltip": TOOLTIPS["utf8_sanitize"]
                 }),
                 "custom_system_prompt": ("STRING", {
-                    "multiline": False,
+                    "multiline": True,
                     "default": "",
                     "placeholder": "Enter a custom system prompt and select 'custom' in the prompt template."
                 }),
