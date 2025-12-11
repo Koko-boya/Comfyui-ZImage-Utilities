@@ -156,7 +156,7 @@ The core enhancement node.
 |-----------|-------------|---------|
 | `config` | Configuration from API Config node | — |
 | `prompt` | Your input text | — |
-| `prompt_template` | Template language | `auto`, `chinese`, `english` |
+| `prompt_template` | Template language | `auto`, `chinese`, `english`, `custom` |
 | `options` | Optional inference parameters | — |
 | `image` | Optional image for vision models | — |
 | `retry_count` | Retry attempts on failure (0–10) | 3 |
@@ -165,6 +165,9 @@ The core enhancement node.
 | `reset_session` | Clear conversation history | False |
 | `keep_model_loaded` | Cache model in memory | True |
 | `utf8_sanitize` | Convert to ASCII-safe characters | False |
+| `custom_system_prompt` | Your own system prompt (requires `{prompt}` placeholder) | — |
+
+> **Custom System Prompt:** Select `custom` in `prompt_template` and provide your own system prompt. Must include `{prompt}` as a placeholder for user input.
 
 **Outputs:** `enhanced_prompt`, `debug_log`
 
