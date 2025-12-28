@@ -934,7 +934,13 @@ class DirectLocalModelClient(BaseLLMClient):
         """Generate response using loaded model."""
         self.clear_debug_log()
         
-        # Safety check for vision input on text-only models
+        self._log(f"Direct Local Model - Repo: {self.repo_id}", "INFO")
+        self._log(f"Quantization: {self.quantization.value}, Temperature: {temperature}")
+        
+        # Load model first to determine if it's a VL model (sets self.is_vl_model)
+        self.load_model(keep_loaded=keep_loaded)
+        
+        # Extract images from messages
         has_images = False
         image_inputs = []
         
@@ -950,13 +956,9 @@ class DirectLocalModelClient(BaseLLMClient):
                             b64_str = url.split(",")[1]
                             image_inputs.append(Image.open(BytesIO(base64.b64decode(b64_str))))
         
+        # Validate vision input compatibility (now is_vl_model is correctly set)
         if has_images and not self.is_vl_model:
              raise ValueError("This model does not support vision inputs. Please use a Vision-Language model (e.g., Qwen-VL) or disconnect the image.")
-
-        self._log(f"Direct Local Model - Repo: {self.repo_id}", "INFO")
-        self._log(f"Quantization: {self.quantization.value}, Temperature: {temperature}")
-        
-        self.load_model(keep_loaded=keep_loaded)
         
         # Handle Seed
         if "seed" in kwargs:
@@ -1916,12 +1918,46 @@ class Z_ImagePromptEnhancer:
 
 
 # ============================================================================
-# PROMPT ENHANCER WITH CLIP OUTPUT
+# PROMPT ENHANCER WITH CLIP OUTPUT (Enhanced with Omni Support)
 # ============================================================================
+
+def format_omni_prompt(prompt: str, num_condition_images: int = 0) -> str:
+    """
+    Format prompt for Z-Image-Omni pipeline with vision tokens.
+    
+    This generates the appropriate prompt format expected by ZImageOmniPipeline:
+    - For text-only: <|im_start|>user\n[prompt]<|im_end|>\n<|im_start|>assistant\n
+    - For image+text: <|im_start|>user\n<|vision_start|><|vision_end|>...[prompt]<|im_end|>\n<|im_start|>assistant\n<|vision_start|>
+    
+    Args:
+        prompt: The enhanced text prompt
+        num_condition_images: Number of condition images (0 for text-to-image)
+    
+    Returns:
+        Formatted prompt string with vision tokens
+    """
+    if num_condition_images == 0:
+        # Text-to-image mode
+        return f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+    else:
+        # Image editing/conditioning mode
+        # Build vision token sequence for each condition image
+        parts = ["<|im_start|>user\n<|vision_start|>"]
+        parts.extend(["<|vision_end|><|vision_start|>"] * (num_condition_images - 1))
+        parts.append(f"<|vision_end|>{prompt}<|im_end|>\n<|im_start|>assistant\n<|vision_start|>")
+        parts.append("<|vision_end|><|im_end|>")
+        return "".join(parts)
+
 
 class Z_ImagePromptEnhancerWithCLIP:
     """
-    Prompt Enhancer with CLIP conditioning output.
+    Prompt Enhancer with CLIP conditioning output and Omni pipeline support.
+    
+    Features:
+    - CLIP conditioning output for direct use in ComfyUI
+    - Multiple condition image support (up to 4 images) for Z-Image-Omni
+    - Automatic vision token formatting for Omni pipeline
+    - Backward compatible with single image input
     """
     
     @classmethod
@@ -1942,9 +1978,24 @@ class Z_ImagePromptEnhancerWithCLIP:
             },
             "optional": {
                 "options": ("ZIMAGE_OPTIONS",),
+                # Legacy single image input (for backward compatibility)
                 "image": ("IMAGE", {
-                    "tooltip": TOOLTIPS["image"]
+                    "tooltip": "Single image input for vision models (legacy). Use condition_image_1-4 for Omni mode."
                 }),
+                # Multi-image conditioning for Omni
+                "condition_image_1": ("IMAGE", {
+                    "tooltip": "First condition image for Z-Image-Omni image editing"
+                }),
+                "condition_image_2": ("IMAGE", {
+                    "tooltip": "Second condition image (optional)"
+                }),
+                "condition_image_3": ("IMAGE", {
+                    "tooltip": "Third condition image (optional)"
+                }),
+                "condition_image_4": ("IMAGE", {
+                    "tooltip": "Fourth condition image (optional)"
+                }),
+
                 "retry_count": ("INT", {
                     "default": 3,
                     "min": 0,
@@ -1986,11 +2037,11 @@ class Z_ImagePromptEnhancerWithCLIP:
             }
         }
     
-    RETURN_TYPES = ("CONDITIONING", "STRING", "STRING")
-    RETURN_NAMES = ("conditioning", "enhanced_prompt", "debug_log")
+    RETURN_TYPES = ("CONDITIONING", "STRING", "STRING", "STRING", "INT")
+    RETURN_NAMES = ("conditioning", "enhanced_prompt", "omni_formatted_prompt", "debug_log", "num_condition_images")
     FUNCTION = "enhance_and_encode"
     CATEGORY = "Z-Image"
-    DESCRIPTION = "Enhance prompt and encode with CLIP for direct use in image generation."
+    DESCRIPTION = "Enhance prompt and encode with CLIP. Supports Z-Image-Omni multi-image conditioning."
     
     def enhance_and_encode(
         self,
@@ -2001,6 +2052,11 @@ class Z_ImagePromptEnhancerWithCLIP:
         unique_id: str = "",
         options: Optional[Dict[str, Any]] = None,
         image: Optional["torch.Tensor"] = None,
+        condition_image_1: Optional["torch.Tensor"] = None,
+        condition_image_2: Optional["torch.Tensor"] = None,
+        condition_image_3: Optional["torch.Tensor"] = None,
+        condition_image_4: Optional["torch.Tensor"] = None,
+
         retry_count: int = 3,
         max_output_length: int = 6000,
         session_id: str = "",
@@ -2009,16 +2065,44 @@ class Z_ImagePromptEnhancerWithCLIP:
         utf8_sanitize: bool = False,
         custom_system_prompt: str = "",
     ):
-        """Enhance prompt and encode with CLIP."""
+        """Enhance prompt and encode with CLIP. Supports Omni multi-image conditioning."""
         
+        debug_lines = ["[Z-IMAGE PROMPT ENHANCER + CLIP]", "=" * 50]
+        
+        # Collect condition images (Omni mode)
+        condition_images = []
+        for idx, img in enumerate([condition_image_1, condition_image_2, condition_image_3, condition_image_4], 1):
+            if img is not None:
+                condition_images.append(img)
+                debug_lines.append(f"Condition image {idx}: shape={img.shape}")
+        
+        num_condition_images = len(condition_images)
+        
+        # Determine which image to use for LLM vision enhancement
+        # Priority: condition_image_1 > legacy 'image' input
+        if condition_images:
+            vision_image = condition_images[0]
+            debug_lines.append(f"Total condition images: {num_condition_images}")
+            debug_lines.append(f"Mode: Image Editing (Omni)")
+        elif image is not None:
+            vision_image = image
+            debug_lines.append(f"Legacy image input: shape={image.shape}")
+            debug_lines.append(f"Mode: Vision-enhanced text-to-image")
+        else:
+            vision_image = None
+            debug_lines.append(f"Mode: Text-to-Image")
+        
+        debug_lines.append("")
+        
+        # Enhance the prompt using base enhancer
         enhancer = Z_ImagePromptEnhancer()
-        enhanced_prompt, debug_log = enhancer.enhance(
+        enhanced_prompt, enhance_debug = enhancer.enhance(
             config=config,
             prompt=prompt,
             prompt_template=prompt_template,
             unique_id=unique_id,
             options=options,
-            image=image,
+            image=vision_image,
             retry_count=retry_count,
             max_output_length=max_output_length,
             session_id=session_id,
@@ -2028,13 +2112,49 @@ class Z_ImagePromptEnhancerWithCLIP:
             custom_system_prompt=custom_system_prompt,
         )
         
+        debug_lines.append(enhance_debug)
+        
+        # Format for Omni pipeline with vision tokens (always enabled)
+        debug_lines.append("")
+        debug_lines.append("[OMNI FORMATTING]")
+        debug_lines.append("=" * 50)
+        omni_formatted = format_omni_prompt(enhanced_prompt, num_condition_images)
+        debug_lines.append(f"Formatted with {num_condition_images} vision token(s)")
+        debug_lines.append(f"Omni prompt length: {len(omni_formatted)} characters")
+        if num_condition_images == 0:
+            debug_lines.append("  - Text-only mode (standard vision tokens)")
+        else:
+            debug_lines.append(f"  - {num_condition_images}x <|vision_start|>...<|vision_end|> for condition images")
+            debug_lines.append("  - 1x <|vision_start|>...<|vision_end|> for generated output")
+        
+        # Noise mask info
+        debug_lines.append("")
+        debug_lines.append("[NOISE MASK INFO]")
+        debug_lines.append("=" * 50)
+        if num_condition_images > 0:
+            noise_mask_preview = [0] * num_condition_images + [1]
+            debug_lines.append(f"Expected noise mask: {noise_mask_preview}")
+            debug_lines.append(f"  - {num_condition_images}x 0 (clean/condition images)")
+            debug_lines.append("  - 1x 1 (noisy/target image)")
+        else:
+            debug_lines.append("No noise mask needed for text-to-image generation")
+        
         # Encode with CLIP
         tokens = clip.tokenize(enhanced_prompt)
         cond, pooled = clip.encode_from_tokens(tokens, return_pooled=True)
         conditioning = [[cond, {"pooled_output": pooled}]]
         
-        return (conditioning, enhanced_prompt, debug_log)
-
+        debug_lines.append("")
+        debug_lines.append("[CLIP ENCODING]")
+        debug_lines.append(f"Conditioning shape: {cond.shape}")
+        
+        return (
+            conditioning,
+            enhanced_prompt,
+            omni_formatted,
+            "\n".join(debug_lines),
+            num_condition_images
+        )
 
 # ============================================================================
 # MODEL MANAGEMENT NODES
