@@ -8,6 +8,7 @@ A collection of utility nodes for ComfyUI designed specifically for the [Z-Image
 
 - **3 Backend Options** — OpenRouter (cloud), Local API servers, or Direct HuggingFace model loading
 - **Vision Model Support** — Use vision-language models for image-aware prompt enhancement
+- **Integrated KSampler** — All-in-one node with prompt enhancement + sampling (AuraFlow, CFGNorm, batch generation)
 - **Session Management** — Multi-turn conversations with persistent chat history
 - **Smart Output Cleaning** — Automatically removes LLM artifacts, repetitions, and thinking tags
 - **Quantization Support** — 4-bit/8-bit quantization for running large models on consumer GPUs
@@ -44,6 +45,7 @@ pip install torch transformers accelerate bitsandbytes huggingface-hub
 | **Z-Image Options** | Advanced inference parameters (temperature, top_p, seed, etc.) |
 | **Z-Image Prompt Enhancer** | Core prompt enhancement node |
 | **Z-Image Prompt Enhancer + CLIP** | Enhancement with direct CLIP conditioning output |
+| **Z-Image Integrated KSampler** | All-in-one: prompt enhancement + sampling with AuraFlow/CFGNorm |
 | **Z-Image Unload Models** | Free GPU memory by unloading cached models |
 | **Z-Image Clear Sessions** | Clear conversation history |
 
@@ -179,7 +181,39 @@ Same as above, plus direct CLIP conditioning output.
 
 **Additional Input:** `clip` — CLIP model from checkpoint loader
 
-**Outputs:** `conditioning`, `enhanced_prompt`, `debug_log`
+**Outputs:** `conditioning`, `enhanced_prompt`, `omni_formatted_prompt`, `debug_log`, `num_condition_images`
+
+---
+
+### Z-Image Integrated KSampler
+
+All-in-one node combining LLM prompt enhancement with full KSampler capabilities.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `model` | Diffusion model | — |
+| `clip` | CLIP model | — |
+| `vae` | VAE model | — |
+| `config` | LLM configuration | — |
+| `positive_prompt` | Positive prompt (enhanced by LLM) | — |
+| `negative_prompt` | Negative prompt | — |
+| `generation_mode` | `text_to_image` or `image_to_image` | `text_to_image` |
+| `width` / `height` | Output dimensions | 1024 |
+| `seed` | Random seed | 0 |
+| `steps` | Sampling steps | 20 |
+| `cfg` | CFG scale | 7.0 |
+| `sampler_name` | Sampler algorithm | `euler` |
+| `scheduler` | Scheduler type | `normal` |
+| `denoise` | Denoise strength | 1.0 |
+| `enable_prompt_enhance` | Toggle LLM enhancement | True |
+| `auraflow_shift` | AuraFlow optimization (0 = disabled) | 0.0 |
+| `cfg_norm_strength` | CFGNorm strength (0 = disabled) | 0.0 |
+| `batch_size` | Number of images | 1 |
+| `auto_save_folder` | Auto-save path (empty = disabled) | — |
+| `enable_clean_gpu` | Clean GPU memory | False |
+| `instruction` | VLM instruction for I2I mode | — |
+
+**Outputs:** `images`, `latent`, `enhanced_prompt`, `debug_log`
 
 ---
 
