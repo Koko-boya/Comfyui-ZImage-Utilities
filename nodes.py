@@ -36,7 +36,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 # Optional imports
 try:
@@ -78,7 +78,7 @@ except ImportError:
     HAS_COMFYUI = False
 
 if TYPE_CHECKING:
-    from torch import Tensor
+    pass  # Type hints only
 
 
 # ============================================================================
@@ -671,7 +671,7 @@ class OpenRouterClient(BaseLLMClient):
                     
                     return content
                 else:
-                    raise ValueError(f"Unexpected API response structure")
+                    raise ValueError("Unexpected API response structure")
                     
             except urllib.error.HTTPError as e:
                 error_content = self._parse_http_error(e)
@@ -825,12 +825,12 @@ class LocalLLMClient(BaseLLMClient):
                     content = result["choices"][0]["message"].get("content", "")
                     
                     if not content or not content.strip():
-                        raise ValueError(f"Local LLM returned empty response")
+                        raise ValueError("Local LLM returned empty response")
                     
                     self._log(f"Response received: {len(content)} characters", "INFO")
                     return content
                 else:
-                    raise ValueError(f"Unexpected API response structure")
+                    raise ValueError("Unexpected API response structure")
                     
             except urllib.error.HTTPError as e:
                 if 400 <= e.code < 500 and e.code != 429:
@@ -838,7 +838,7 @@ class LocalLLMClient(BaseLLMClient):
                     raise
                 
                 if attempt == retry_count:
-                    self._log(f"All retries exhausted", "ERROR")
+                    self._log("All retries exhausted", "ERROR")
                     raise
                 
                 wait_time = 3 * (2 ** attempt)
@@ -870,12 +870,16 @@ class DirectLocalModelClient(BaseLLMClient):
         self,
         repo_id: str,
         quantization: str = "none",
-        device: str = "auto"
+        device: str = "auto",
+        llm_path: str = "",
+        auto_download_fallback: bool = False
     ):
         super().__init__()
         self.repo_id = repo_id.strip()
         self.quantization = Quantization(quantization) if isinstance(quantization, str) else quantization
         self.device = device
+        self.llm_path = llm_path.strip() if llm_path else ""
+        self.auto_download_fallback = auto_download_fallback
         self.model = None
         self.tokenizer = None
         self.processor = None
@@ -897,30 +901,117 @@ class DirectLocalModelClient(BaseLLMClient):
         """Generate cache key for this model configuration."""
         return f"{self.repo_id}_{self.quantization.value}_{self.device}"
     
+    def _validate_model_directory(self, model_path: Path) -> bool:
+        """
+        Validate that a model directory contains a complete, usable model.
+        
+        Checks:
+        1. config.json exists and has model_type field
+        2. At least one model weight file exists (.safetensors or .bin)
+        
+        Returns:
+            True if model appears complete, False otherwise
+        """
+        config_path = model_path / "config.json"
+        
+        # Check config.json exists
+        if not config_path.exists():
+            self._log(f"Missing config.json in {model_path}", "WARNING")
+            return False
+        
+        # Check config.json has required fields
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            if "model_type" not in config:
+                self._log("config.json missing 'model_type' field - likely incomplete download", "WARNING")
+                return False
+                
+        except (json.JSONDecodeError, IOError) as e:
+            self._log(f"Failed to parse config.json: {e}", "WARNING")
+            return False
+        
+        # Check for model weight files
+        weight_patterns = ["*.safetensors", "*.bin"]
+        has_weights = False
+        for pattern in weight_patterns:
+            if list(model_path.glob(pattern)):
+                has_weights = True
+                break
+        
+        if not has_weights:
+            self._log(f"No model weight files found in {model_path}", "WARNING")
+            return False
+        
+        return True
+
+    
     def ensure_model_downloaded(self) -> Path:
-        """Download model if not present."""
+        """Download model if not present, or use custom path."""
         if not HAS_TRANSFORMERS:
             raise RuntimeError("transformers library required. Install: pip install transformers torch accelerate bitsandbytes")
         
+        # Priority 1: Custom llm_path
+        if self.llm_path:
+            base_path = Path(self.llm_path)
+            model_name = self.repo_id.split("/")[-1]  # e.g., "Qwen3-VL-4B-Instruct"
+            
+            # Try multiple path patterns in order of specificity
+            paths_to_try = [
+                base_path / self.repo_id,      # /path/Qwen/Qwen3-VL-4B-Instruct
+                base_path / model_name,         # /path/Qwen3-VL-4B-Instruct
+                base_path,                      # /path (direct to model folder)
+            ]
+            
+            for path in paths_to_try:
+                if path.exists() and (path / "config.json").exists():
+                    self._log(f"Using custom path: {path}", "INFO")
+                    return path
+            
+            # None of the manual paths worked
+            if self.auto_download_fallback:
+                # Fall back to auto-download behavior
+                self._log("Model not found at custom path, falling back to auto-download...", "WARNING")
+            else:
+                # Strict mode: fail if custom path doesn't work
+                tried = ", ".join(str(p) for p in paths_to_try[:2])
+                raise RuntimeError(f"Model not found at custom path. Tried: {tried}")
+        
+        # Priority 2: Z-Image cache directory
         models_dir = self.get_models_dir()
         model_name = self.repo_id.split("/")[-1]
         model_path = models_dir / model_name
         
-        if not model_path.exists():
-            self._log(f"Downloading model {self.repo_id}...", "INFO")
-            try:
-                snapshot_download(
-                    repo_id=self.repo_id,
-                    local_dir=str(model_path),
-                    local_dir_use_symlinks=False,
-                    ignore_patterns=["*.md", ".git*", "*.gguf"],
-                )
-                self._log(f"Model downloaded to: {model_path}", "INFO")
-            except Exception as e:
-                self._log(f"Download failed: {e}", "ERROR")
-                raise RuntimeError(f"Failed to download model {self.repo_id}: {e}")
-        else:
-            self._log(f"Model found at: {model_path}")
+        if model_path.exists():
+            # Validate the model is complete before using it
+            if self._validate_model_directory(model_path):
+                self._log(f"Model found at: {model_path}")
+                return model_path
+            else:
+                self._log(f"Model at {model_path} appears incomplete/corrupted, re-downloading...", "WARNING")
+                # Remove incomplete directory
+                import shutil
+                try:
+                    shutil.rmtree(model_path)
+                    self._log("Removed incomplete model directory", "INFO")
+                except Exception as e:
+                    self._log(f"Failed to remove incomplete model: {e}", "ERROR")
+                    raise RuntimeError(f"Model at {model_path} is incomplete. Please delete it manually and retry.")
+        
+        # Priority 3: Download from HuggingFace
+        self._log(f"Downloading model {self.repo_id}...", "INFO")
+        try:
+            snapshot_download(
+                repo_id=self.repo_id,
+                local_dir=str(model_path),
+                local_dir_use_symlinks=False,
+                ignore_patterns=["*.md", ".git*", "*.gguf"],
+            )
+            self._log(f"Model downloaded to: {model_path}", "INFO")
+        except Exception as e:
+            self._log(f"Download failed: {e}", "ERROR")
+            raise RuntimeError(f"Failed to download model {self.repo_id}: {e}")
         
         return model_path
     
@@ -1035,7 +1126,7 @@ class DirectLocalModelClient(BaseLLMClient):
             if keep_loaded:
                 self._model_cache[cache_key] = (self.model, self.tokenizer if not self.is_vl_model else self.processor)
             
-            self._log(f"Model loaded successfully", "INFO")
+            self._log("Model loaded successfully", "INFO")
             return self.model, self.tokenizer if not self.is_vl_model else self.processor
             
         except Exception as e:
@@ -1107,98 +1198,130 @@ class DirectLocalModelClient(BaseLLMClient):
         # Generate based on model type
         self._log("Generating response...", "INFO")
         
-        with torch.no_grad():
-            if self.is_vl_model:
-                # VL Model Generation (Qwen-VL style)
-                # Extract text prompt
-                text_prompt = ""
-                for msg in messages:
-                    if isinstance(msg["content"], str):
-                        text_prompt += msg["content"] + "\n"
-                    elif isinstance(msg["content"], list):
-                        for part in msg["content"]:
-                            if part["type"] == "text":
-                                text_prompt += part["text"] + "\n"
-                
-                # Prepare inputs using processor
-                # Try to use processor's chat template if available for better formatting
-                if hasattr(self.processor, 'apply_chat_template'):
-                    try:
-                        # Use the processor's built-in chat template
-                        formatted_text = self.processor.apply_chat_template(
-                            messages,
-                            tokenize=False,
-                            add_generation_prompt=True
-                        )
-                        self._log("Using processor's apply_chat_template", "INFO")
-                    except Exception as e:
-                        # Fallback to manual formatting if template fails
-                        self._log(f"Chat template failed ({e}), using manual format", "WARNING")
+        # Log device and memory info for debugging
+        try:
+            device = next(self.model.parameters()).device
+            self._log(f"Model device: {device}", "INFO")
+            if device.type == "cuda":
+                self._log(f"CUDA device: {torch.cuda.get_device_name(device)}", "INFO")
+                mem_allocated = torch.cuda.memory_allocated(device) / 1024**3
+                mem_reserved = torch.cuda.memory_reserved(device) / 1024**3
+                self._log(f"GPU memory: {mem_allocated:.2f}GB allocated, {mem_reserved:.2f}GB reserved", "INFO")
+        except Exception as e:
+            self._log(f"Could not get device info: {e}", "WARNING")
+        
+        try:
+            with torch.no_grad():
+                if self.is_vl_model:
+                    # VL Model Generation (Qwen-VL style)
+                    # Extract text prompt
+                    text_prompt = ""
+                    for msg in messages:
+                        if isinstance(msg["content"], str):
+                            text_prompt += msg["content"] + "\n"
+                        elif isinstance(msg["content"], list):
+                            for part in msg["content"]:
+                                if part["type"] == "text":
+                                    text_prompt += part["text"] + "\n"
+                    
+                    # Prepare inputs using processor
+                    # Try to use processor's chat template if available for better formatting
+                    if hasattr(self.processor, 'apply_chat_template'):
+                        try:
+                            # Use the processor's built-in chat template
+                            formatted_text = self.processor.apply_chat_template(
+                                messages,
+                                tokenize=False,
+                                add_generation_prompt=True
+                            )
+                            self._log("Using processor's apply_chat_template", "INFO")
+                        except Exception as e:
+                            # Fallback to manual formatting if template fails
+                            self._log(f"Chat template failed ({e}), using manual format", "WARNING")
+                            formatted_text = f"User: {text_prompt}\nAssistant:"
+                    else:
+                        # No chat template available, use manual formatting
                         formatted_text = f"User: {text_prompt}\nAssistant:"
+                        self._log("No chat template available, using manual format", "INFO")
+                    
+                    # Process inputs with or without images
+                    if image_inputs:
+                        inputs = self.processor(
+                            text=[formatted_text],
+                            images=image_inputs,
+                            padding=True,
+                            return_tensors="pt"
+                        )
+                        self._log(f"Processed {len(image_inputs)} image(s) with text", "INFO")
+                    else:
+                        inputs = self.processor(
+                            text=[formatted_text],
+                            return_tensors="pt"
+                        )
+                    
+                    # Move inputs to device
+                    device = next(self.model.parameters()).device
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                    
+                    outputs = self.model.generate(**inputs, **gen_kwargs)
+                    
+                    # Decode
+                    if len(outputs.shape) == 2:
+                        # Standard output: [batch_size, sequence_length]
+                        generated_ids = outputs[0][len(inputs["input_ids"][0]):]
+                    else:
+                        # Fallback for unexpected shapes
+                        generated_ids = outputs[0]
+                    response = self.processor.decode(generated_ids, skip_special_tokens=True)
+                    
                 else:
-                    # No chat template available, use manual formatting
-                    formatted_text = f"User: {text_prompt}\nAssistant:"
-                    self._log("No chat template available, using manual format", "INFO")
-                
-                # Process inputs with or without images
-                if image_inputs:
-                    inputs = self.processor(
-                        text=[formatted_text],
-                        images=image_inputs,
-                        padding=True,
-                        return_tensors="pt"
+                    # Text-Only Model Generation
+                    # Format messages using chat template
+                    text = self.tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True
                     )
-                    self._log(f"Processed {len(image_inputs)} image(s) with text", "INFO")
-                else:
-                    inputs = self.processor(
-                        text=[formatted_text],
-                        return_tensors="pt"
+                    
+                    # Tokenize
+                    inputs = self.tokenizer(text, return_tensors="pt")
+                    
+                    # Move to model device
+                    device = next(self.model.parameters()).device
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                    
+                    gen_kwargs["pad_token_id"] = self.tokenizer.eos_token_id
+                    
+                    outputs = self.model.generate(
+                        **inputs,
+                        **gen_kwargs
                     )
                 
-                # Move inputs to device
-                device = next(self.model.parameters()).device
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-                
-                outputs = self.model.generate(**inputs, **gen_kwargs)
-                
-                # Decode
-                if len(outputs.shape) == 2:
-                    # Standard output: [batch_size, sequence_length]
-                    generated_ids = outputs[0][len(inputs["input_ids"][0]):]
-                else:
-                    # Fallback for unexpected shapes
-                    generated_ids = outputs[0]
-                response = self.processor.decode(generated_ids, skip_special_tokens=True)
-                
-            else:
-                # Text-Only Model Generation
-                # Format messages using chat template
-                text = self.tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-                
-                # Tokenize
-                inputs = self.tokenizer(text, return_tensors="pt")
-                
-                # Move to model device
-                device = next(self.model.parameters()).device
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-                
-                gen_kwargs["pad_token_id"] = self.tokenizer.eos_token_id
-                
-                outputs = self.model.generate(
-                    **inputs,
-                    **gen_kwargs
-                )
-            
-                # Decode
-                input_len = inputs["input_ids"].shape[1]
-                response = self.tokenizer.decode(
-                    outputs[0][input_len:],
-                    skip_special_tokens=True
-                )
+                    # Decode
+                    input_len = inputs["input_ids"].shape[1]
+                    response = self.tokenizer.decode(
+                        outputs[0][input_len:],
+                        skip_special_tokens=True
+                    )
+        
+        except torch.cuda.OutOfMemoryError as e:
+            self._log(f"CUDA Out of Memory during generation: {e}", "ERROR")
+            clear_gpu_memory()
+            raise RuntimeError(f"GPU out of memory during generation. Try reducing max_tokens or using 4-bit quantization. Error: {e}")
+        except RuntimeError as e:
+            error_str = str(e)
+            self._log(f"RuntimeError during generation: {error_str}", "ERROR")
+            # Check for common CUDA errors
+            if "CUDA" in error_str or "cuda" in error_str:
+                self._log("This appears to be a CUDA-related error. Try disabling sage attention or updating drivers.", "ERROR")
+            import traceback
+            self._log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            raise
+        except Exception as e:
+            self._log(f"Unexpected error during generation: {type(e).__name__}: {e}", "ERROR")
+            import traceback
+            self._log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            raise
         
         self._log(f"Generated {len(response)} characters", "INFO")
         
@@ -1456,7 +1579,7 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
     elif re.search(r'(\s*"[^"]{1,50}"\s*){3,}$', text):
         match = re.search(r'(\s*"[^"]{1,50}"\s*){3,}$', text)
         if debug_log:
-            debug_log.append(f"Removed trailing quoted keywords")
+            debug_log.append("Removed trailing quoted keywords")
         text = text[:match.start()].strip()
         if text and text[-1] not in '.!?':
             text += '.'
@@ -1651,6 +1774,15 @@ class Z_ImageAPIConfig:
                     "multiline": False,
                     "tooltip": TOOLTIPS["local_endpoint"]
                 }),
+                "llm_path": ("STRING", {
+                    "default": "",
+                    "placeholder": "C:/path/to/LLM/models (optional, for Direct provider)",
+                    "tooltip": "Custom path to local LLM models. If set, model name is treated as folder name. If empty, downloads from HuggingFace."
+                }),
+                "auto_download_fallback": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "If enabled: try manual path first, fall back to auto-download if not found. If disabled: manual path is strict (fails if not found)."
+                }),
                 "quantization": (Quantization.get_values(), {
                     "default": Quantization.Q4.value,
                     "tooltip": TOOLTIPS["quantization"]
@@ -1674,6 +1806,8 @@ class Z_ImageAPIConfig:
         model: str,
         api_key: str = "",
         local_endpoint: str = "http://localhost:11434/v1",
+        llm_path: str = "",
+        auto_download_fallback: bool = False,
         quantization: str = "4bit",
         device: str = "auto"
     ) -> Tuple[Dict[str, Any]]:
@@ -1711,12 +1845,20 @@ class Z_ImageAPIConfig:
                 )
             config["quantization"] = quantization
             config["device"] = device
+            config["llm_path"] = llm_path.strip()
+            config["auto_download_fallback"] = auto_download_fallback
             config["client"] = DirectLocalModelClient(
                 repo_id=clean_model,
                 quantization=quantization,
-                device=device
+                device=device,
+                llm_path=llm_path.strip(),
+                auto_download_fallback=auto_download_fallback
             )
-            logger.info(f"Configured Direct Model: {clean_model} ({quantization})")
+            if llm_path.strip():
+                fallback_status = " (with auto-download fallback)" if auto_download_fallback else " (strict)"
+                logger.info(f"Configured Direct Model: {clean_model} from {llm_path}{fallback_status}")
+            else:
+                logger.info(f"Configured Direct Model: {clean_model} ({quantization})")
         
         return (config,)
 
@@ -1817,7 +1959,7 @@ class Z_ImagePromptEnhancer:
         
         debug_lines = []
         debug_lines.append("=" * 60)
-        debug_lines.append(f"Z-IMAGE PROMPT ENHANCER")
+        debug_lines.append("Z-IMAGE PROMPT ENHANCER")
         debug_lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         debug_lines.append("=" * 60)
         
@@ -1876,7 +2018,6 @@ class Z_ImagePromptEnhancer:
         
         # Extract enabled options
         opts = filter_enabled_options(options) if options else {}
-        debug_mode = opts.get("debug_mode", False)
         
         # Determine prompt template language
         if prompt_template == "auto":
@@ -1888,7 +2029,7 @@ class Z_ImagePromptEnhancer:
         else:
             lang = "custom"
         
-        debug_lines.append(f"\n[CONFIGURATION]")
+        debug_lines.append("\n[CONFIGURATION]")
         debug_lines.append(f"Provider: {config['provider']}")
         debug_lines.append(f"Model: {config['model']}")
         debug_lines.append(f"Prompt Template: {lang}")
@@ -1909,11 +2050,11 @@ class Z_ImagePromptEnhancer:
         template = PROMPT_TEMPLATE_ZH if lang == "zh" else PROMPT_TEMPLATE_EN if lang == "en" else custom_system_prompt
         system_prompt = template.format(prompt=prompt)
         
-        debug_lines.append(f"\n[INPUT]")
+        debug_lines.append("\n[INPUT]")
         debug_lines.append(f"User prompt (length: {len(prompt)} chars):")
         debug_lines.append(f"{prompt}")
         
-        debug_lines.append(f"\n[SYSTEM INSTRUCTION SENT TO API]")
+        debug_lines.append("\n[SYSTEM INSTRUCTION SENT TO API]")
         debug_lines.append(f"Length: {len(system_prompt)} chars")
         debug_lines.append(f"Content:\n{system_prompt}")
         
@@ -1927,17 +2068,17 @@ class Z_ImagePromptEnhancer:
             debug_lines.append(f"Added {len(session.messages)} messages from session history")
         
         # Add minimal user trigger message
-        messages.append({"role": "user", "content": " "})
+        messages.append({"role": "user", "content": "Generate."})
         
         # Handle vision models if image provided
         if image is not None and HAS_PIL:
-            debug_lines.append(f"\n[VISION]")
+            debug_lines.append("\n[VISION]")
             debug_lines.append("Processing image input for vision model...")
             try:
                 images_b64 = batch_tensors_to_base64(image)
                 if images_b64:
                     debug_lines.append(f"Encoded {len(images_b64)} image(s) to base64")
-                    content_parts = [{"type": "text", "text": " "}]
+                    content_parts = [{"type": "text", "text": "Generate based on the images."}]
                     for idx, img_b64 in enumerate(images_b64):
                         content_parts.append({
                             "type": "image_url",
@@ -1954,7 +2095,7 @@ class Z_ImagePromptEnhancer:
         temperature = opts.get("temperature", 0.7)
         max_tokens = opts.get("max_tokens")  # Will be None if disabled
         
-        debug_lines.append(f"\n[INFERENCE]")
+        debug_lines.append("\n[INFERENCE]")
         debug_lines.append(f"Temperature: {temperature}")
         debug_lines.append(f"Max Tokens: {max_tokens if max_tokens is not None else 'Not set (using API default)'}")
         
@@ -1979,7 +2120,7 @@ class Z_ImagePromptEnhancer:
         response = client.chat(**api_params)
         
         # Add client log to debug output
-        debug_lines.append(f"\n[CLIENT LOG]")
+        debug_lines.append("\n[CLIENT LOG]")
         if hasattr(client, 'debug_log'):
             debug_lines.extend(client.debug_log)
         
@@ -1987,12 +2128,12 @@ class Z_ImagePromptEnhancer:
         if not response or not response.strip():
             raise ValueError("API returned empty response")
         
-        debug_lines.append(f"\n[RAW RESPONSE]")
+        debug_lines.append("\n[RAW RESPONSE]")
         debug_lines.append(f"Length: {len(response)} chars")
         debug_lines.append(f"Full content:\n{response}")
         
         # Clean output - NOW USES max_output_length parameter
-        debug_lines.append(f"\n[CLEANING]")
+        debug_lines.append("\n[CLEANING]")
         enhanced = clean_llm_output(response, max_length=max_output_length, debug_log=debug_lines)
         
         if not enhanced:
@@ -2003,7 +2144,7 @@ class Z_ImagePromptEnhancer:
             enhanced = sanitize_utf8(enhanced)
             debug_lines.append("UTF-8 sanitization applied")
         
-        debug_lines.append(f"\n[OUTPUT]")
+        debug_lines.append("\n[OUTPUT]")
         debug_lines.append(f"Final length: {len(enhanced)} characters")
         debug_lines.append(f"Full enhanced prompt:\n{enhanced}")
         
@@ -2017,13 +2158,13 @@ class Z_ImagePromptEnhancer:
             estimated_tokens = len(enhanced) / 4
             estimated_words = len(enhanced) / 5
             
-        debug_lines.append(f"\n[TOKEN ESTIMATE]")
+        debug_lines.append("\n[TOKEN ESTIMATE]")
         debug_lines.append(f"Estimated words: ~{int(estimated_words)}")
         debug_lines.append(f"Estimated tokens: ~{int(estimated_tokens)} (Z-Image in ComfyUI supports unlimited tokens)")
         
         # Only warn if unreasonably long (e.g. > 8000 tokens which might hit other limits)
         if estimated_tokens > 8000:
-             debug_lines.append(f"WARNING: Extremely long prompt (>8000 tokens). This may impact generation quality.")
+             debug_lines.append("WARNING: Extremely long prompt (>8000 tokens). This may impact generation quality.")
         
         logger.info(f"Enhancement successful. Length: {len(enhanced)}")
         
@@ -2031,7 +2172,7 @@ class Z_ImagePromptEnhancer:
         # Store original prompt (not system instruction) for cleaner history
         session.add_message("user", prompt)
         session.add_message("assistant", enhanced)
-        debug_lines.append(f"\n[SESSION]")
+        debug_lines.append("\n[SESSION]")
         debug_lines.append(f"Saved conversation to session '{effective_session_id}'")
         debug_lines.append(f"Total messages in session: {len(session.messages)}")
         
@@ -2211,16 +2352,16 @@ class Z_ImagePromptEnhancerWithCLIP:
             if num_condition_images > 1:
                 debug_lines.append(f"Mode: Image Editing (Omni) - All {num_condition_images} images sent to VL")
             else:
-                debug_lines.append(f"Mode: Image-to-Image")
+                debug_lines.append("Mode: Image-to-Image")
         elif generation_mode == "image_to_image" and not input_images:
             # I2I mode but no images - warn and fallback to T2I
             debug_lines.append("WARNING: image_to_image mode selected but no images attached. Falling back to text_to_image.")
             vision_images = None
-            debug_lines.append(f"Mode: Text-to-Image (fallback)")
+            debug_lines.append("Mode: Text-to-Image (fallback)")
         else:
             # Text-to-Image mode - ignore any attached images for VL
             vision_images = None
-            debug_lines.append(f"Mode: Text-to-Image")
+            debug_lines.append("Mode: Text-to-Image")
         
         debug_lines.append("")
         
