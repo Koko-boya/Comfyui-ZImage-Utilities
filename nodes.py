@@ -952,16 +952,24 @@ class DirectLocalModelClient(BaseLLMClient):
         
         # Priority 1: Custom llm_path
         if self.llm_path:
-            custom_path = Path(self.llm_path) / self.repo_id
-            if custom_path.exists():
-                self._log(f"Using custom path: {custom_path}", "INFO")
-                return custom_path
-            # Try as direct path (repo_id could be full folder name)
-            direct_path = Path(self.llm_path)
-            if direct_path.exists() and (direct_path / "config.json").exists():
-                self._log(f"Using direct custom path: {direct_path}", "INFO")
-                return direct_path
-            raise RuntimeError(f"Model not found at custom path: {custom_path}")
+            base_path = Path(self.llm_path)
+            model_name = self.repo_id.split("/")[-1]  # e.g., "Qwen3-VL-4B-Instruct"
+            
+            # Try multiple path patterns in order of specificity
+            paths_to_try = [
+                base_path / self.repo_id,      # /path/Qwen/Qwen3-VL-4B-Instruct
+                base_path / model_name,         # /path/Qwen3-VL-4B-Instruct
+                base_path,                      # /path (direct to model folder)
+            ]
+            
+            for path in paths_to_try:
+                if path.exists() and (path / "config.json").exists():
+                    self._log(f"Using custom path: {path}", "INFO")
+                    return path
+            
+            # None of the paths worked
+            tried = ", ".join(str(p) for p in paths_to_try[:2])
+            raise RuntimeError(f"Model not found at custom path. Tried: {tried}")
         
         # Priority 2: Z-Image cache directory
         models_dir = self.get_models_dir()
