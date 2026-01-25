@@ -2068,7 +2068,7 @@ class Z_ImagePromptEnhancer:
             debug_lines.append(f"Added {len(session.messages)} messages from session history")
         
         # Add minimal user trigger message
-        messages.append({"role": "user", "content": " "})
+        messages.append({"role": "user", "content": "Generate."})
         
         # Handle vision models if image provided
         if image is not None and HAS_PIL:
@@ -2078,7 +2078,7 @@ class Z_ImagePromptEnhancer:
                 images_b64 = batch_tensors_to_base64(image)
                 if images_b64:
                     debug_lines.append(f"Encoded {len(images_b64)} image(s) to base64")
-                    content_parts = [{"type": "text", "text": " "}]
+                    content_parts = [{"type": "text", "text": "Generate based on the images."}]
                     for idx, img_b64 in enumerate(images_b64):
                         content_parts.append({
                             "type": "image_url",
