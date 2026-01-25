@@ -871,13 +871,15 @@ class DirectLocalModelClient(BaseLLMClient):
         repo_id: str,
         quantization: str = "none",
         device: str = "auto",
-        llm_path: str = ""
+        llm_path: str = "",
+        auto_download_fallback: bool = False
     ):
         super().__init__()
         self.repo_id = repo_id.strip()
         self.quantization = Quantization(quantization) if isinstance(quantization, str) else quantization
         self.device = device
         self.llm_path = llm_path.strip() if llm_path else ""
+        self.auto_download_fallback = auto_download_fallback
         self.model = None
         self.tokenizer = None
         self.processor = None
@@ -967,9 +969,14 @@ class DirectLocalModelClient(BaseLLMClient):
                     self._log(f"Using custom path: {path}", "INFO")
                     return path
             
-            # None of the paths worked
-            tried = ", ".join(str(p) for p in paths_to_try[:2])
-            raise RuntimeError(f"Model not found at custom path. Tried: {tried}")
+            # None of the manual paths worked
+            if self.auto_download_fallback:
+                # Fall back to auto-download behavior
+                self._log(f"Model not found at custom path, falling back to auto-download...", "WARNING")
+            else:
+                # Strict mode: fail if custom path doesn't work
+                tried = ", ".join(str(p) for p in paths_to_try[:2])
+                raise RuntimeError(f"Model not found at custom path. Tried: {tried}")
         
         # Priority 2: Z-Image cache directory
         models_dir = self.get_models_dir()
@@ -1740,6 +1747,10 @@ class Z_ImageAPIConfig:
                     "placeholder": "C:/path/to/LLM/models (optional, for Direct provider)",
                     "tooltip": "Custom path to local LLM models. If set, model name is treated as folder name. If empty, downloads from HuggingFace."
                 }),
+                "auto_download_fallback": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "If enabled: try manual path first, fall back to auto-download if not found. If disabled: manual path is strict (fails if not found)."
+                }),
                 "quantization": (Quantization.get_values(), {
                     "default": Quantization.Q4.value,
                     "tooltip": TOOLTIPS["quantization"]
@@ -1764,6 +1775,7 @@ class Z_ImageAPIConfig:
         api_key: str = "",
         local_endpoint: str = "http://localhost:11434/v1",
         llm_path: str = "",
+        auto_download_fallback: bool = False,
         quantization: str = "4bit",
         device: str = "auto"
     ) -> Tuple[Dict[str, Any]]:
@@ -1802,14 +1814,17 @@ class Z_ImageAPIConfig:
             config["quantization"] = quantization
             config["device"] = device
             config["llm_path"] = llm_path.strip()
+            config["auto_download_fallback"] = auto_download_fallback
             config["client"] = DirectLocalModelClient(
                 repo_id=clean_model,
                 quantization=quantization,
                 device=device,
-                llm_path=llm_path.strip()
+                llm_path=llm_path.strip(),
+                auto_download_fallback=auto_download_fallback
             )
             if llm_path.strip():
-                logger.info(f"Configured Direct Model: {clean_model} from {llm_path}")
+                fallback_status = " (with auto-download fallback)" if auto_download_fallback else " (strict)"
+                logger.info(f"Configured Direct Model: {clean_model} from {llm_path}{fallback_status}")
             else:
                 logger.info(f"Configured Direct Model: {clean_model} ({quantization})")
         
