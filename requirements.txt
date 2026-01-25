@@ -4,5 +4,8 @@ accelerate>=0.20.0
 bitsandbytes>=0.41.0
 huggingface-hub>=0.16.0
 
+# Optional: enables fast downloads when HF_HUB_ENABLE_HF_TRANSFER=1 is set
+hf_transfer>=0.1.4
+
 # Note: These are required for the 'Direct' provider option.
 # 'torch' is excluded as it should be provided by the ComfyUI environment.

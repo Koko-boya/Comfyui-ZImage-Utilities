@@ -899,6 +899,52 @@ class DirectLocalModelClient(BaseLLMClient):
         """Generate cache key for this model configuration."""
         return f"{self.repo_id}_{self.quantization.value}_{self.device}"
     
+    def _validate_model_directory(self, model_path: Path) -> bool:
+        """
+        Validate that a model directory contains a complete, usable model.
+        
+        Checks:
+        1. config.json exists and has model_type field
+        2. At least one model weight file exists (.safetensors or .bin)
+        
+        Returns:
+            True if model appears complete, False otherwise
+        """
+        config_path = model_path / "config.json"
+        
+        # Check config.json exists
+        if not config_path.exists():
+            self._log(f"Missing config.json in {model_path}", "WARNING")
+            return False
+        
+        # Check config.json has required fields
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            if "model_type" not in config:
+                self._log(f"config.json missing 'model_type' field - likely incomplete download", "WARNING")
+                return False
+                
+        except (json.JSONDecodeError, IOError) as e:
+            self._log(f"Failed to parse config.json: {e}", "WARNING")
+            return False
+        
+        # Check for model weight files
+        weight_patterns = ["*.safetensors", "*.bin"]
+        has_weights = False
+        for pattern in weight_patterns:
+            if list(model_path.glob(pattern)):
+                has_weights = True
+                break
+        
+        if not has_weights:
+            self._log(f"No model weight files found in {model_path}", "WARNING")
+            return False
+        
+        return True
+
+    
     def ensure_model_downloaded(self) -> Path:
         """Download model if not present, or use custom path."""
         if not HAS_TRANSFORMERS:
@@ -923,8 +969,20 @@ class DirectLocalModelClient(BaseLLMClient):
         model_path = models_dir / model_name
         
         if model_path.exists():
-            self._log(f"Model found at: {model_path}")
-            return model_path
+            # Validate the model is complete before using it
+            if self._validate_model_directory(model_path):
+                self._log(f"Model found at: {model_path}")
+                return model_path
+            else:
+                self._log(f"Model at {model_path} appears incomplete/corrupted, re-downloading...", "WARNING")
+                # Remove incomplete directory
+                import shutil
+                try:
+                    shutil.rmtree(model_path)
+                    self._log(f"Removed incomplete model directory", "INFO")
+                except Exception as e:
+                    self._log(f"Failed to remove incomplete model: {e}", "ERROR")
+                    raise RuntimeError(f"Model at {model_path} is incomplete. Please delete it manually and retry.")
         
         # Priority 3: Download from HuggingFace
         self._log(f"Downloading model {self.repo_id}...", "INFO")
