@@ -1045,7 +1045,8 @@ class DirectLocalModelClient(BaseLLMClient):
             device = self.device
         
         # Build model kwargs
-        model_kwargs = {"trust_remote_code": True, "use_safetensors": True}
+        # Force eager attention to avoid CUDA crashes with sage/flash attention on newer GPUs
+        model_kwargs = {"trust_remote_code": True, "use_safetensors": True, "attn_implementation": "eager"}
         
         if self.quantization == Quantization.Q4:
             if not torch.cuda.is_available():
@@ -1290,12 +1291,27 @@ class DirectLocalModelClient(BaseLLMClient):
                     device = next(self.model.parameters()).device
                     inputs = {k: v.to(device) for k, v in inputs.items()}
                     
+                    # Debug: Log input shapes and content info
+                    self._log(f"Input shapes: input_ids={inputs['input_ids'].shape}, device={inputs['input_ids'].device}", "INFO")
+                    self._log(f"Input dtype: {inputs['input_ids'].dtype}", "INFO")
+                    if 'attention_mask' in inputs:
+                        self._log(f"Attention mask shape: {inputs['attention_mask'].shape}", "INFO")
+                    self._log(f"Gen kwargs: {gen_kwargs}", "INFO")
+                    
                     gen_kwargs["pad_token_id"] = self.tokenizer.eos_token_id
                     
+                    # Sync CUDA before generation to catch earlier errors
+                    if device.type == "cuda":
+                        torch.cuda.synchronize(device)
+                        self._log("CUDA synchronized before generation", "INFO")
+                    
+                    # Generation call - if this crashes, the issue is in the model's forward pass
+                    self._log("Starting model.generate()...", "INFO")
                     outputs = self.model.generate(
                         **inputs,
                         **gen_kwargs
                     )
+                    self._log("model.generate() completed successfully", "INFO")
                 
                     # Decode
                     input_len = inputs["input_ids"].shape[1]
@@ -1312,8 +1328,14 @@ class DirectLocalModelClient(BaseLLMClient):
             error_str = str(e)
             self._log(f"RuntimeError during generation: {error_str}", "ERROR")
             # Check for common CUDA errors
-            if "CUDA" in error_str or "cuda" in error_str:
-                self._log("This appears to be a CUDA-related error. Try disabling sage attention or updating drivers.", "ERROR")
+            if "CUDA" in error_str or "cuda" in error_str or "device-side assert" in error_str:
+                self._log("This appears to be a CUDA-related error.", "ERROR")
+                self._log("For RTX 50xx (Blackwell) GPUs, this may be a compatibility issue.", "ERROR")
+                self._log("Workarounds to try:", "ERROR")
+                self._log("  1. Set device to 'cpu' in Z-Image API Config (slow but compatible)", "ERROR")
+                self._log("  2. Update PyTorch/transformers to latest versions", "ERROR")
+                self._log("  3. Try a different model that has Blackwell-compatible kernels", "ERROR")
+                self._log("  4. Set CUDA_LAUNCH_BLOCKING=1 environment variable for better error info", "ERROR")
             import traceback
             self._log(f"Traceback: {traceback.format_exc()}", "ERROR")
             raise
@@ -2180,254 +2202,6 @@ class Z_ImagePromptEnhancer:
 
 
 # ============================================================================
-# PROMPT ENHANCER WITH CLIP OUTPUT (Enhanced with Omni Support)
-# ============================================================================
-
-def format_omni_prompt(prompt: str, num_condition_images: int = 0) -> str:
-    """
-    Format prompt for Z-Image-Omni pipeline with vision tokens.
-    
-    This generates the appropriate prompt format expected by ZImageOmniPipeline:
-    - For text-only: <|im_start|>user\n[prompt]<|im_end|>\n<|im_start|>assistant\n
-    - For image+text: <|im_start|>user\n<|vision_start|><|vision_end|>...[prompt]<|im_end|>\n<|im_start|>assistant\n<|vision_start|>
-    
-    Args:
-        prompt: The enhanced text prompt
-        num_condition_images: Number of condition images (0 for text-to-image)
-    
-    Returns:
-        Formatted prompt string with vision tokens
-    """
-    if num_condition_images == 0:
-        # Text-to-image mode
-        return f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-    else:
-        # Image editing/conditioning mode
-        # Build vision token sequence for each condition image
-        parts = ["<|im_start|>user\n<|vision_start|>"]
-        parts.extend(["<|vision_end|><|vision_start|>"] * (num_condition_images - 1))
-        parts.append(f"<|vision_end|>{prompt}<|im_end|>\n<|im_start|>assistant\n<|vision_start|>")
-        parts.append("<|vision_end|><|im_end|>")
-        return "".join(parts)
-
-
-class Z_ImagePromptEnhancerWithCLIP:
-    """
-    Prompt Enhancer with CLIP conditioning output and Omni pipeline support.
-    
-    Features:
-    - CLIP conditioning output for direct use in ComfyUI
-    - Multiple condition image support (up to 4 images) for Z-Image-Omni
-    - Automatic vision token formatting for Omni pipeline
-    - Backward compatible with single image input
-    """
-    
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "clip": ("CLIP",),
-                "config": ("ZIMAGE_CONFIG",),
-                "prompt": ("STRING", {
-                    "multiline": True,
-                    "default": "",
-                    "placeholder": "Enter your prompt to enhance..."
-                }),
-                "prompt_template": (["auto", "chinese", "english", "custom"], {
-                    "default": "chinese",
-                    "tooltip": TOOLTIPS["prompt_template"]
-                }),
-                "generation_mode": (["text_to_image", "image_to_image"], {
-                    "default": "text_to_image",
-                    "tooltip": "Generation mode: text_to_image (T2I) or image_to_image (I2I/Omni editing)"
-                }),
-            },
-            "optional": {
-                "options": ("ZIMAGE_OPTIONS",),
-                # Multi-image input for vision enhancement and Omni
-                "image_1": ("IMAGE", {
-                    "tooltip": "First image for vision enhancement and Z-Image-Omni editing"
-                }),
-                "image_2": ("IMAGE", {
-                    "tooltip": "Second image (optional)"
-                }),
-                "image_3": ("IMAGE", {
-                    "tooltip": "Third image (optional)"
-                }),
-                "image_4": ("IMAGE", {
-                    "tooltip": "Fourth image (optional)"
-                }),
-
-                "retry_count": ("INT", {
-                    "default": 3,
-                    "min": 0,
-                    "max": 10,
-                    "step": 1,
-                    "tooltip": TOOLTIPS["retry_count"]
-                }),
-                "max_output_length": ("INT", {
-                    "default": 6000,
-                    "min": 0,
-                    "max": 10000,
-                    "step": 100,
-                    "tooltip": TOOLTIPS["max_output_length"]
-                }),
-                "session_id": ("STRING", {
-                    "default": "",
-                    "tooltip": TOOLTIPS["session_id"]
-                }),
-                "reset_session": ("BOOLEAN", {
-                    "default": False,
-                    "tooltip": TOOLTIPS["reset_session"]
-                }),
-                "keep_model_loaded": ("BOOLEAN", {
-                    "default": True,
-                    "tooltip": TOOLTIPS["keep_model_loaded"]
-                }),
-                "utf8_sanitize": ("BOOLEAN", {
-                    "default": False,
-                    "tooltip": TOOLTIPS["utf8_sanitize"]
-                }),
-                "custom_system_prompt": ("STRING", {
-                    "multiline": True,
-                    "default": "",
-                    "placeholder": "Enter a custom system prompt and select 'custom' in the prompt template."
-                }),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID"
-            }
-        }
-    
-    RETURN_TYPES = ("CONDITIONING", "STRING", "STRING", "STRING", "INT")
-    RETURN_NAMES = ("conditioning", "enhanced_prompt", "omni_formatted_prompt", "debug_log", "num_condition_images")
-    FUNCTION = "enhance_and_encode"
-    CATEGORY = "Z-Image"
-    DESCRIPTION = "Enhance prompt and encode with CLIP. Supports Z-Image-Omni multi-image conditioning."
-    
-    def enhance_and_encode(
-        self,
-        clip,
-        config: Dict[str, Any],
-        prompt: str,
-        prompt_template: str,
-        generation_mode: str,
-        unique_id: str = "",
-        options: Optional[Dict[str, Any]] = None,
-
-        image_1: Optional["torch.Tensor"] = None,
-        image_2: Optional["torch.Tensor"] = None,
-        image_3: Optional["torch.Tensor"] = None,
-        image_4: Optional["torch.Tensor"] = None,
-
-        retry_count: int = 3,
-        max_output_length: int = 6000,
-        session_id: str = "",
-        reset_session: bool = False,
-        keep_model_loaded: bool = True,
-        utf8_sanitize: bool = False,
-        custom_system_prompt: str = "",
-    ):
-        """Enhance prompt and encode with CLIP. Supports Omni multi-image conditioning."""
-        
-        debug_lines = ["[Z-IMAGE PROMPT ENHANCER + CLIP]", "=" * 50]
-        
-        # Collect input images
-        input_images = []
-        for idx, img in enumerate([image_1, image_2, image_3, image_4], 1):
-            if img is not None:
-                input_images.append(img)
-                debug_lines.append(f"Image {idx}: shape={img.shape}")
-        
-        num_condition_images = len(input_images)
-        
-        # Determine mode based on user selection and images
-        debug_lines.append(f"Generation mode: {generation_mode}")
-        
-        if generation_mode == "image_to_image" and input_images:
-            # Image-to-Image / Omni mode - use all attached images
-            vision_images = torch.cat(input_images, dim=0)
-            debug_lines.append(f"Total images: {num_condition_images}")
-            debug_lines.append(f"Vision batch shape: {vision_images.shape}")
-            if num_condition_images > 1:
-                debug_lines.append(f"Mode: Image Editing (Omni) - All {num_condition_images} images sent to VL")
-            else:
-                debug_lines.append("Mode: Image-to-Image")
-        elif generation_mode == "image_to_image" and not input_images:
-            # I2I mode but no images - warn and fallback to T2I
-            debug_lines.append("WARNING: image_to_image mode selected but no images attached. Falling back to text_to_image.")
-            vision_images = None
-            debug_lines.append("Mode: Text-to-Image (fallback)")
-        else:
-            # Text-to-Image mode - ignore any attached images for VL
-            vision_images = None
-            debug_lines.append("Mode: Text-to-Image")
-        
-        debug_lines.append("")
-        
-        # Enhance the prompt using base enhancer
-        enhancer = Z_ImagePromptEnhancer()
-        enhanced_prompt, enhance_debug = enhancer.enhance(
-            config=config,
-            prompt=prompt,
-            prompt_template=prompt_template,
-            unique_id=unique_id,
-            options=options,
-            image=vision_images,
-            retry_count=retry_count,
-            max_output_length=max_output_length,
-            session_id=session_id,
-            reset_session=reset_session,
-            keep_model_loaded=keep_model_loaded,
-            utf8_sanitize=utf8_sanitize,
-            custom_system_prompt=custom_system_prompt,
-        )
-        
-        debug_lines.append(enhance_debug)
-        
-        # Format for Omni pipeline with vision tokens (always enabled)
-        debug_lines.append("")
-        debug_lines.append("[OMNI FORMATTING]")
-        debug_lines.append("=" * 50)
-        omni_formatted = format_omni_prompt(enhanced_prompt, num_condition_images)
-        debug_lines.append(f"Formatted with {num_condition_images} vision token(s)")
-        debug_lines.append(f"Omni prompt length: {len(omni_formatted)} characters")
-        if num_condition_images == 0:
-            debug_lines.append("  - Text-only mode (standard vision tokens)")
-        else:
-            debug_lines.append(f"  - {num_condition_images}x <|vision_start|>...<|vision_end|> for condition images")
-            debug_lines.append("  - 1x <|vision_start|>...<|vision_end|> for generated output")
-        
-        # Noise mask info
-        debug_lines.append("")
-        debug_lines.append("[NOISE MASK INFO]")
-        debug_lines.append("=" * 50)
-        if num_condition_images > 0:
-            noise_mask_preview = [0] * num_condition_images + [1]
-            debug_lines.append(f"Expected noise mask: {noise_mask_preview}")
-            debug_lines.append(f"  - {num_condition_images}x 0 (clean/condition images)")
-            debug_lines.append("  - 1x 1 (noisy/target image)")
-        else:
-            debug_lines.append("No noise mask needed for text-to-image generation")
-        
-        # Encode with CLIP
-        tokens = clip.tokenize(enhanced_prompt)
-        cond, pooled = clip.encode_from_tokens(tokens, return_pooled=True)
-        conditioning = [[cond, {"pooled_output": pooled}]]
-        
-        debug_lines.append("")
-        debug_lines.append("[CLIP ENCODING]")
-        debug_lines.append(f"Conditioning shape: {cond.shape}")
-        
-        return (
-            conditioning,
-            enhanced_prompt,
-            omni_formatted,
-            "\n".join(debug_lines),
-            num_condition_images
-        )
-
-# ============================================================================
 # INTEGRATED KSAMPLER WITH PROMPT ENHANCEMENT
 # ============================================================================
 
@@ -2828,7 +2602,6 @@ NODE_CLASS_MAPPINGS = {
     "Z_ImageAPIConfig": Z_ImageAPIConfig,
     "Z_ImageOptions": Z_ImageOptions,
     "Z_ImagePromptEnhancer": Z_ImagePromptEnhancer,
-    "Z_ImagePromptEnhancerWithCLIP": Z_ImagePromptEnhancerWithCLIP,
     "Z_ImageIntegratedKSampler": Z_ImageIntegratedKSampler,
     "Z_ImageUnloadModels": Z_ImageUnloadModels,
     "Z_ImageClearSessions": Z_ImageClearSessions,
@@ -2838,7 +2611,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Z_ImageAPIConfig": "Z-Image API Config",
     "Z_ImageOptions": "Z-Image Options",
     "Z_ImagePromptEnhancer": "Z-Image Prompt Enhancer",
-    "Z_ImagePromptEnhancerWithCLIP": "Z-Image Prompt Enhancer + CLIP",
     "Z_ImageIntegratedKSampler": "Z-Image Integrated KSampler",
     "Z_ImageUnloadModels": "Z-Image Unload Models",
     "Z_ImageClearSessions": "Z-Image Clear Sessions",

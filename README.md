@@ -44,7 +44,6 @@ pip install torch transformers accelerate bitsandbytes huggingface-hub
 | **Z-Image API Config** | Configure API connection (OpenRouter, Local, or Direct) |
 | **Z-Image Options** | Advanced inference parameters (temperature, top_p, seed, etc.) |
 | **Z-Image Prompt Enhancer** | Core prompt enhancement node |
-| **Z-Image Prompt Enhancer + CLIP** | Enhancement with direct CLIP conditioning output |
 | **Z-Image Integrated KSampler** | All-in-one: prompt enhancement + sampling with AuraFlow/CFGNorm |
 | **Z-Image Unload Models** | Free GPU memory by unloading cached models |
 | **Z-Image Clear Sessions** | Clear conversation history |
@@ -61,12 +60,12 @@ pip install torch transformers accelerate bitsandbytes huggingface-hub
                     [Z-Image Options] (optional)
 ```
 
-### Streamlined Workflow (with CLIP output)
+### All-in-One Workflow (Integrated KSampler)
 
 ```
-[Checkpoint Loader] → [Z-Image Prompt Enhancer + CLIP] → [KSampler]
-                                    ↑
-                        [Z-Image API Config]
+[Checkpoint Loader] → [Z-Image Integrated KSampler] → [Preview Image]
+                                ↑
+                    [Z-Image API Config]
 ```
 
 ---
@@ -125,6 +124,8 @@ Configure your LLM connection.
 | `model` | Model identifier | `qwen/qwen3-235b-a22b:free` |
 | `api_key` | OpenRouter API key | `sk-or-v1-xxxxx` |
 | `local_endpoint` | Local server URL | `http://localhost:11434/v1` |
+| `llm_path` | Custom local model path (Direct only) | `C:/models/my-llm` |
+| `auto_download_fallback` | Auto-download if local path invalid (Direct only) | `true`, `false` |
 | `quantization` | Memory optimization (Direct only) | `4bit`, `8bit`, `none` |
 | `device` | Compute device (Direct only) | `auto`, `cuda`, `cpu`, `mps` |
 
@@ -172,16 +173,6 @@ The core enhancement node.
 > **Custom System Prompt:** Select `custom` in `prompt_template` and provide your own system prompt. Must include `{prompt}` as a placeholder for user input.
 
 **Outputs:** `enhanced_prompt`, `debug_log`
-
----
-
-### Z-Image Prompt Enhancer + CLIP
-
-Same as above, plus direct CLIP conditioning output.
-
-**Additional Input:** `clip` — CLIP model from checkpoint loader
-
-**Outputs:** `conditioning`, `enhanced_prompt`, `omni_formatted_prompt`, `debug_log`, `num_condition_images`
 
 ---
 
