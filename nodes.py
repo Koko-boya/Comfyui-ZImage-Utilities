@@ -37,6 +37,8 @@ from enum import Enum
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+import shutil
+import threading
 
 # Optional imports
 try:
@@ -99,6 +101,13 @@ DEFAULT_CONFIG = {
     "timeout": 120,
 }
 
+# Safety and limits constants
+VRAM_SAFETY_THRESHOLD_GB = 2.0  # Force LLM offload if free VRAM below this
+MAX_SESSIONS = 1000  # Prevent unbounded session memory growth
+MAX_LOG_SIZE_MB = 10  # Rotate logs after this size
+VL_DEFAULT_RESOLUTION = 384  # Default vision model resolution (configurable)
+GPU_CLEAR_THRESHOLD_GB = 0.5  # Only clear GPU if > this much allocated
+
 # Tooltips for UI elements (following QwenVL pattern)
 TOOLTIPS = {
     "provider": "Select API provider: openrouter (cloud), local (API server), or direct (HuggingFace model loading)",
@@ -155,6 +164,14 @@ def setup_logger(name: str = "Z-ImageUtility", log_file: Optional[Path] = None) 
     # File handler - DEBUG level
     if log_file:
         try:
+            # Log rotation: rotate if log file exceeds size limit
+            if log_file.exists() and log_file.stat().st_size > MAX_LOG_SIZE_MB * 1024 * 1024:
+                backup = log_file.with_suffix('.log.1')
+                try:
+                    log_file.replace(backup)
+                except Exception:
+                    pass  # Continue even if rotation fails
+            
             file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(logging.Formatter(
@@ -206,60 +223,70 @@ class ChatSession:
         self.last_used = datetime.now()
 
 
-# Global session storage
+# Global session storage with thread safety
 CHAT_SESSIONS: Dict[str, ChatSession] = {}
+_session_lock = threading.Lock()
+_model_lock = threading.Lock()
 
 
 def get_or_create_session(session_id: str, model: str = "") -> Tuple[ChatSession, bool]:
     """Get existing session or create a new one. Returns (session, is_new)."""
     global _cleanup_counter
     
-    # Run cleanup every 100 session accesses (non-critical race condition acceptable)
-    _cleanup_counter += 1
-    if _cleanup_counter >= 100:
-        _cleanup_counter = 0
-        try:
-            cleanup_old_sessions()
-        except RuntimeError:
-            # Dictionary changed size during iteration - skip this cleanup cycle
-            pass
-    
-    is_new = session_id not in CHAT_SESSIONS
-    if is_new:
-        CHAT_SESSIONS[session_id] = ChatSession(model=model)
-        logger.info(f"Created new session: {session_id}")
-    return CHAT_SESSIONS[session_id], is_new
+    with _session_lock:
+        # Enforce session limit to prevent unbounded memory growth
+        if len(CHAT_SESSIONS) > MAX_SESSIONS:
+            oldest = sorted(CHAT_SESSIONS.items(), key=lambda x: x[1].last_used)[:100]
+            for sid, _ in oldest:
+                CHAT_SESSIONS.pop(sid, None)
+            logger.info(f"Removed {len(oldest)} oldest sessions (limit: {MAX_SESSIONS})")
+        
+        # Run cleanup every 100 session accesses
+        _cleanup_counter += 1
+        if _cleanup_counter >= 100:
+            _cleanup_counter = 0
+            try:
+                _cleanup_old_sessions_unlocked()
+            except RuntimeError:
+                pass
+        
+        is_new = session_id not in CHAT_SESSIONS
+        if is_new:
+            CHAT_SESSIONS[session_id] = ChatSession(model=model)
+            logger.info(f"Created new session: {session_id}")
+        return CHAT_SESSIONS[session_id], is_new
 
 
 def clear_session(session_id: str) -> bool:
     """Clear a specific session. Returns True if session existed."""
-    if session_id in CHAT_SESSIONS:
-        CHAT_SESSIONS[session_id].clear()
-        logger.info(f"Cleared session: {session_id}")
-        return True
-    logger.debug(f"Session not found for clearing: {session_id}")
-    return False
+    with _session_lock:
+        if session_id in CHAT_SESSIONS:
+            CHAT_SESSIONS[session_id].clear()
+            logger.info(f"Cleared session: {session_id}")
+            return True
+        logger.debug(f"Session not found for clearing: {session_id}")
+        return False
 
 # Session cleanup configuration
 MAX_SESSION_AGE_HOURS = 24
 _cleanup_counter = 0
 
 
-def cleanup_old_sessions() -> int:
-    """
-    Remove sessions older than MAX_SESSION_AGE_HOURS.
-    
-    Returns:
-        Number of sessions removed.
-    """
+def _cleanup_old_sessions_unlocked() -> int:
+    """Remove sessions older than MAX_SESSION_AGE_HOURS. Must be called with lock held."""
     cutoff = datetime.now() - timedelta(hours=MAX_SESSION_AGE_HOURS)
-    # Take a snapshot of items to avoid RuntimeError during concurrent iteration
     expired = [sid for sid, sess in list(CHAT_SESSIONS.items()) if sess.last_used < cutoff]
     for sid in expired:
-        CHAT_SESSIONS.pop(sid, None)  # Use pop to avoid KeyError if already removed
+        CHAT_SESSIONS.pop(sid, None)
     if expired:
         logger.info(f"Cleaned up {len(expired)} expired session(s)")
     return len(expired)
+
+
+def cleanup_old_sessions() -> int:
+    """Remove sessions older than MAX_SESSION_AGE_HOURS. Thread-safe wrapper."""
+    with _session_lock:
+        return _cleanup_old_sessions_unlocked()
 
 # ============================================================================
 # DEVICE AND MEMORY UTILITIES (Following QwenVL pattern)
@@ -345,6 +372,67 @@ def clear_gpu_memory() -> None:
         logger.debug("GPU memory cache cleared")
 
 
+def clear_gpu_memory_safe() -> None:
+    """Clear GPU memory cache only if significant memory is allocated."""
+    if not HAS_TRANSFORMERS or not torch.cuda.is_available():
+        return
+    mem_allocated = torch.cuda.memory_allocated() / (1024**3)
+    if mem_allocated > GPU_CLEAR_THRESHOLD_GB:
+        clear_gpu_memory()
+
+
+def get_gpu_generation() -> str:
+    """Detect GPU generation via compute capability."""
+    if not HAS_TRANSFORMERS or not torch.cuda.is_available():
+        return "unknown"
+    try:
+        major, minor = torch.cuda.get_device_capability(0)
+        if major >= 10:
+            return "blackwell"  # RTX 50xx
+        elif major >= 9:
+            return "hopper"     # H100, etc.
+        elif major >= 8:
+            return "ampere"     # RTX 30xx, A100
+        elif major >= 7:
+            return "turing"     # RTX 20xx
+        return "older"
+    except Exception:
+        return "unknown"
+
+
+def check_vram_and_offload_llm(threshold_gb: float = VRAM_SAFETY_THRESHOLD_GB) -> bool:
+    """Force LLM to CPU if VRAM is below threshold. Returns True if offloaded."""
+    if not HAS_TRANSFORMERS or not torch.cuda.is_available():
+        return False
+    
+    try:
+        # Try ComfyUI's memory management first
+        if HAS_COMFYUI:
+            free_mem = comfy.model_management.get_free_memory() / (1024**3)
+        else:
+            free_mem = (torch.cuda.get_device_properties(0).total_memory - 
+                       torch.cuda.memory_allocated(0)) / (1024**3)
+        
+        if free_mem < threshold_gb:
+            logger.warning(f"Low VRAM ({free_mem:.1f}GB < {threshold_gb}GB), offloading LLM...")
+            DirectLocalModelClient.unload_all_models()
+            return True
+    except Exception as e:
+        logger.debug(f"VRAM check failed: {e}")
+    return False
+
+
+def check_disk_space(target_dir: Path, required_gb: float = 10.0) -> bool:
+    """Check if sufficient disk space is available. Raises if not."""
+    try:
+        free_gb = shutil.disk_usage(target_dir).free / (1024**3)
+        if free_gb < required_gb * 1.5:  # 50% buffer
+            raise RuntimeError(f"Insufficient disk space. Need ~{required_gb}GB, have {free_gb:.1f}GB")
+        return True
+    except OSError:
+        return True  # Can't check, proceed anyway
+
+
 # ============================================================================
 # IMAGE UTILITIES
 # ============================================================================
@@ -354,9 +442,19 @@ def tensor_to_base64(tensor: "torch.Tensor") -> str:
     if not HAS_PIL:
         raise RuntimeError("PIL is required for image processing")
     
+    # Validation
+    if tensor is None:
+        raise ValueError("Image tensor is None")
+    if tensor.dim() not in [3, 4]:
+        raise ValueError(f"Expected 3D/4D tensor, got {tensor.dim()}D")
+    
     # Handle batch dimension
     if tensor.dim() == 4:
         tensor = tensor[0]
+    
+    # Handle RGBA tensors (drop alpha channel)
+    if tensor.shape[-1] == 4:
+        tensor = tensor[..., :3]
     
     # Convert to numpy and scale to 0-255
     array = (tensor.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
@@ -954,8 +1052,13 @@ class DirectLocalModelClient(BaseLLMClient):
         
         # Priority 1: Custom llm_path
         if self.llm_path:
-            base_path = Path(self.llm_path)
+            base_path = Path(self.llm_path).resolve()
             model_name = self.repo_id.split("/")[-1]  # e.g., "Qwen3-VL-4B-Instruct"
+            
+            # Security: prevent path traversal (basic check)
+            models_dir_parent = self.get_models_dir().parent.resolve()
+            if ".." in self.llm_path:
+                self._log("Warning: Path contains '..', validating...", "WARNING")
             
             # Try multiple path patterns in order of specificity
             paths_to_try = [
@@ -1001,6 +1104,10 @@ class DirectLocalModelClient(BaseLLMClient):
         
         # Priority 3: Download from HuggingFace
         self._log(f"Downloading model {self.repo_id}...", "INFO")
+        
+        # Check disk space before download (estimate ~10GB minimum for most models)
+        check_disk_space(models_dir, required_gb=10.0)
+        
         try:
             snapshot_download(
                 repo_id=self.repo_id,
@@ -1052,9 +1159,22 @@ class DirectLocalModelClient(BaseLLMClient):
             if not torch.cuda.is_available():
                 self._log("CUDA not available, falling back to FP16", "WARNING")
             else:
+                # Check GPU architecture for optimal settings
+                gpu_name = torch.cuda.get_device_name(0).lower()
+                is_blackwell = "5090" in gpu_name or "5080" in gpu_name or "5070" in gpu_name or "50" in gpu_name
+                
+                # Use bfloat16 for Blackwell GPUs (RTX 50xx) for better compatibility
+                # Fall back to float16 for older GPUs
+                if is_blackwell or torch.cuda.is_bf16_supported():
+                    compute_dtype = torch.bfloat16
+                    self._log("Using bfloat16 compute dtype (Blackwell GPU detected or bf16 supported)", "INFO")
+                else:
+                    compute_dtype = torch.float16
+                    self._log("Using float16 compute dtype", "INFO")
+                
                 model_kwargs["quantization_config"] = BitsAndBytesConfig(
                     load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_compute_dtype=compute_dtype,
                     bnb_4bit_use_double_quant=True,
                     bnb_4bit_quant_type="nf4",
                 )
@@ -1110,6 +1230,18 @@ class DirectLocalModelClient(BaseLLMClient):
                     str(model_path),
                     trust_remote_code=True
                 )
+                
+                # Ensure pad_token is set (critical for Gemma and other models)
+                # This prevents CUDA assertion errors on newer GPUs
+                if self.tokenizer.pad_token is None:
+                    if self.tokenizer.eos_token is not None:
+                        self.tokenizer.pad_token = self.tokenizer.eos_token
+                        self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+                        self._log("Set pad_token to eos_token", "INFO")
+                    else:
+                        # Fallback: add a pad token
+                        self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                        self._log("Added [PAD] token to tokenizer", "INFO")
                 
                 # Load model using AutoModelForCausalLM
                 self.model = AutoModelForCausalLM.from_pretrained(
@@ -1284,33 +1416,85 @@ class DirectLocalModelClient(BaseLLMClient):
                         add_generation_prompt=True
                     )
                     
-                    # Tokenize
-                    inputs = self.tokenizer(text, return_tensors="pt")
+                    # Tokenize with explicit padding settings
+                    inputs = self.tokenizer(
+                        text, 
+                        return_tensors="pt",
+                        padding=True,
+                        return_attention_mask=True
+                    )
                     
                     # Move to model device
                     device = next(self.model.parameters()).device
                     inputs = {k: v.to(device) for k, v in inputs.items()}
                     
+                    # Ensure attention_mask is present and correct dtype
+                    # This is critical for avoiding CUDA assertion errors on Blackwell GPUs
+                    if 'attention_mask' not in inputs:
+                        inputs['attention_mask'] = torch.ones_like(inputs['input_ids'])
+                        self._log("Created attention_mask (was missing)", "INFO")
+                    
+                    # Create position_ids explicitly to avoid CUDA assertion errors
+                    # Some quantized models on newer GPUs have issues with auto-generated position_ids
+                    seq_len = inputs['input_ids'].shape[1]
+                    inputs['position_ids'] = torch.arange(0, seq_len, dtype=torch.long, device=device).unsqueeze(0)
+                    
                     # Debug: Log input shapes and content info
                     self._log(f"Input shapes: input_ids={inputs['input_ids'].shape}, device={inputs['input_ids'].device}", "INFO")
                     self._log(f"Input dtype: {inputs['input_ids'].dtype}", "INFO")
-                    if 'attention_mask' in inputs:
-                        self._log(f"Attention mask shape: {inputs['attention_mask'].shape}", "INFO")
+                    self._log(f"Attention mask shape: {inputs['attention_mask'].shape}", "INFO")
+                    self._log(f"Position IDs shape: {inputs['position_ids'].shape}", "INFO")
                     self._log(f"Gen kwargs: {gen_kwargs}", "INFO")
                     
-                    gen_kwargs["pad_token_id"] = self.tokenizer.eos_token_id
+                    # Set pad_token_id - use pad_token_id if available, fallback to eos_token_id
+                    pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id
+                    if pad_id is None or pad_id == 0:
+                        # Avoid token ID 0 which can cause CUDA assertion errors
+                        pad_id = 1
+                        self._log("Using pad_token_id=1 to avoid CUDA assertion error", "WARNING")
+                    gen_kwargs["pad_token_id"] = pad_id
+                    
+                    # Also set eos_token_id explicitly - same protection against ID 0
+                    eos_id = self.tokenizer.eos_token_id
+                    if eos_id is not None and eos_id != 0:
+                        gen_kwargs["eos_token_id"] = eos_id
+                    else:
+                        # Use pad_id as fallback
+                        gen_kwargs["eos_token_id"] = pad_id
+                        self._log("eos_token_id was 0 or None, using pad_id as fallback", "WARNING")
+                    
+                    self._log(f"Using pad_token_id: {pad_id}, eos_token_id: {gen_kwargs['eos_token_id']}", "INFO")
                     
                     # Sync CUDA before generation to catch earlier errors
                     if device.type == "cuda":
                         torch.cuda.synchronize(device)
                         self._log("CUDA synchronized before generation", "INFO")
                     
-                    # Generation call - if this crashes, the issue is in the model's forward pass
+                    # Add use_cache for better compatibility
+                    gen_kwargs["use_cache"] = True
+                    
+                    # Generation call with retry logic for Blackwell GPU compatibility
                     self._log("Starting model.generate()...", "INFO")
-                    outputs = self.model.generate(
-                        **inputs,
-                        **gen_kwargs
-                    )
+                    try:
+                        outputs = self.model.generate(
+                            **inputs,
+                            **gen_kwargs
+                        )
+                    except RuntimeError as gen_error:
+                        error_str = str(gen_error).lower()
+                        if "assert" in error_str or "cuda" in error_str:
+                            # Retry without position_ids - some models don't handle them well
+                            self._log("Generation failed, retrying without explicit position_ids...", "WARNING")
+                            if 'position_ids' in inputs:
+                                del inputs['position_ids']
+                            # Also try with use_cache=False
+                            gen_kwargs["use_cache"] = False
+                            outputs = self.model.generate(
+                                **inputs,
+                                **gen_kwargs
+                            )
+                        else:
+                            raise
                     self._log("model.generate() completed successfully", "INFO")
                 
                     # Decode
@@ -1427,14 +1611,22 @@ def clean_llm_output(text: str, max_length: int = 0, debug_log: Optional[List[st
     
     original_len = len(text)
     
-    # Remove thinking tags (Qwen3 thinking mode)
-    # Handle both complete <think>...</think> blocks and orphaned </think> tags
-    if "<think>" in text and "</think>" in text:
-        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    # Remove thinking tags (Qwen3/DeepSeek R1 thinking mode)
+    # Handle complete, malformed, and unclosed tags
+    # Fuzzy matching for malformed tags like "< think >" or "<think >"
+    thinking_pattern = re.compile(r'<\s*think\s*>.*?</\s*think\s*>', re.DOTALL | re.IGNORECASE)
+    if thinking_pattern.search(text):
+        text = thinking_pattern.sub('', text).strip()
         if debug_log:
             debug_log.append("Removed <think>...</think> block")
-    elif "</think>" in text:
-        parts = text.split("</think>", 1)
+    elif re.search(r'<\s*think\s*>', text, re.IGNORECASE):
+        # Unclosed <think> tag - remove from <think> to end
+        text = re.sub(r'<\s*think\s*>.*$', '', text, flags=re.DOTALL | re.IGNORECASE).strip()
+        if debug_log:
+            debug_log.append("[WARN] Removed unclosed <think> block")
+    elif re.search(r'</\s*think\s*>', text, re.IGNORECASE):
+        # Orphaned </think> tag - take content after it
+        parts = re.split(r'</\s*think\s*>', text, 1, flags=re.IGNORECASE)
         if len(parts) == 2 and parts[1].strip():
             text = parts[1].strip()
             if debug_log:
